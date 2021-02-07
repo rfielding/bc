@@ -36,4 +36,4 @@ The reason you want to do this is that:
 obj1 + obj2 + obj3 + -obj2 = obj1 + obj3
 ```
 
-So, if I sign a non-trash-compacted version of it, the signature is still unchanged after garbage collecgtion.
+So, if I sign a non-trash-compacted version of it, the signature is still unchanged after garbage collection.
