@@ -68,7 +68,7 @@ func NewState() *State {
 }
 
 type Db struct {
-//	KeyPair *KeyPair
+	KeyPair *KeyPair
 	State   map[Shard]*State
 	Lock    sync.Mutex
 	Curve   elliptic.Curve
@@ -100,15 +100,13 @@ var ZeroPoint = zeroPoint(elliptic.P521())
 
 func NewDB(shard Shard) (*Db, error) {
 	curve := elliptic.P521()
-/*
 	kp, err := NewKeyPair(curve)
 	if err != nil {
 		return nil, err
 	}
-*/
 	return &Db{
 		State:   make(map[Shard]*State),
-		//KeyPair: kp,
+		KeyPair: kp,
 		Curve:   curve,
 	}, nil
 }
@@ -148,7 +146,7 @@ func (db *Db) Insert(v *DataRecord) (*DataRecord, error) {
 	h := sha256.New().Sum([]byte(j))
 	db.sum(st, h, false)
 	st.Data[id] = v
-	return nil, nil
+	return v, nil
 }
 
 // Remove the record only if it is there
@@ -255,7 +253,7 @@ func main() {
 
 	db.Do(Command{Action: ActionRemove, Record: db.Get(dbShard, 2)})
 	fmt.Printf("id1: %s\n\n", db.Checksum(dbShard))
-	/*
+	/*	
 		dbShard2 := Shard(202)
 		db.Do(Command{
 			Action: ActionInsert,
@@ -270,4 +268,5 @@ func main() {
 	db.Do(Command{Action: ActionRemove, Record: db.Get(dbShard, 1)})
 	fmt.Printf("empty checksum: %s\n\n", db.Checksum(dbShard))
 
+	//fmt.Printf("%s\n\n", AsJson(db))
 }
