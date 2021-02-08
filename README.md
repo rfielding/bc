@@ -81,6 +81,8 @@ When events go into a system, we must be able to remove events at the same rate 
 
 Since we are going for database consistency, we can use state to represent account balances.  The fact that transactions are offered and accepted can help here.
 
-= An offered transaction can hash to a EC point.  An accepted transaction can be the side-effect of accepting it, minus the offered transaction.  That way, completed transactions cancel out of the system.
+- An offered transaction can hash to a EC point.  An accepted transaction can be the side-effect of accepting it, minus the offered transaction.  That way, completed transactions cancel out of the system.
 - For example: If I offer to move +20 from A to B, and sign the offer with an expiration date and a hash of 99, B can sign an acceptance that also moves +20 from A to B by simply making a transaction that increments and decrements the accounts and hashes to 52.  Accepting the offer would need to have B sign the negative of the offer so that (52 - 99) are hashed into the system.  Then the transaction that justified the movement can be garbage collected out.  The sum had gone up by 99.  Then the offer was accepted with a hash of (52-99), and the end result, the hash goes up by 52.  So, the positive and negative offer/accept transaction can be cancelled out.
 = A set of balances and unaccepted offers would be what remains.  The actual transactions are not required to be carried around forever. 
+- Each shard is associated with the public key.  Writes go into that shard.
+- When referencing an item in the shard, we must catch up on all the events in that shard.
