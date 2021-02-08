@@ -230,7 +230,8 @@ func main() {
 		panic(err)
 	}
 	fmt.Printf("initial checksum: %s\n\n", db.Checksum(dbShard))
-	db.Do(Command{
+
+	dbShard_1, _ := db.Do(Command{
 		Action: ActionInsert,
 		Record: &DataRecord{
 			Shard: dbShard,
@@ -244,7 +245,7 @@ func main() {
 	}
 	fmt.Printf("sign %d: %s\n\n", dbShard, AsJson(sig))
 
-	db.Do(Command{
+	dbShard_2, _ := db.Do(Command{
 		Action: ActionInsert,
 		Record: &DataRecord{
 			Shard: dbShard,
@@ -253,7 +254,10 @@ func main() {
 	})
 	fmt.Printf("id1+id2: %s\n\n", db.Checksum(dbShard))
 
-	db.Do(Command{Action: ActionRemove, Record: db.Get(dbShard, 2)})
+	db.Do(Command{
+		Action: ActionRemove, 
+		Record: db.Get(dbShard, dbShard_2.Id),
+	})
 	fmt.Printf("id1: %s\n\n", db.Checksum(dbShard))
 
 	// BUG .... this should not affect dbShard at all!
@@ -266,7 +270,10 @@ func main() {
 		},
 	})
 	fmt.Printf("shard %d, id1: %s\n\n", dbShard2, db.Checksum(dbShard2))
-	db.Do(Command{Action: ActionRemove, Record: db.Get(dbShard2, 1)})
+	db.Do(Command{
+		Action: ActionRemove, 
+		Record: db.Get(dbShard2, dbShard_1.Id),
+	})
 
 	verified := db.Verify(dbShard, sig)
 	fmt.Printf("verify: %t\n\n", verified)
