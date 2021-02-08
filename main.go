@@ -53,7 +53,7 @@ type Point struct {
 }
 
 type Db struct {
-	KeyPair KeyPair
+	KeyPair *KeyPair
 	Shard   Shard
 	Data    map[Shard]map[Id]*DataRecord
 	State   map[Shard]*Point
@@ -69,21 +69,28 @@ func zeroPoint(curve elliptic.Curve) *Point {
 	}
 }
 
-var ZeroPoint = zeroPoint(elliptic.P521())
-
-func NewDB(shard Shard) (*Db, error) {
-	curve := elliptic.P521()
+func NewKeyPair(curve elliptic.Curve) (*KeyPair,error) {
 	s, x, y, err := elliptic.GenerateKey(curve, rand.Reader)
 	if err != nil {
 		return nil, err
 	}
-	kp := KeyPair{
+	return &KeyPair{
 		Secret: s,
 		Point: Point{
 			X:      x,
 			Y:      y,
 		},
-	}
+	},nil
+}
+
+var ZeroPoint = zeroPoint(elliptic.P521())
+
+func NewDB(shard Shard) (*Db, error) {
+	curve := elliptic.P521()
+	kp,err := NewKeyPair(curve)
+	if err != nil {
+		return nil,err
+	} 
 	data := make(map[Shard]map[Id]*DataRecord)
 	states := make(map[Shard]*Point)
 	return &Db{
