@@ -11,6 +11,7 @@ import (
 	"log"
 	"math/big"
 	"sync"
+	"crypto/ecdsa"
 )
 
 type Reference struct {
@@ -55,6 +56,7 @@ type Point struct {
 
 type State struct {
 	Data      map[Id]*DataRecord
+	KeyPair   *ecdsa.PrivateKey
 	Checksum  *Point
 	PublicKey *Point
 	HighestId Id
@@ -68,7 +70,6 @@ func NewState() *State {
 }
 
 type Db struct {
-	KeyPair *KeyPair
 	State   map[Shard]*State
 	Lock    sync.Mutex
 }
@@ -81,18 +82,8 @@ func zeroPoint(curve elliptic.Curve) *Point {
 	}
 }
 
-func NewKeyPair(curve elliptic.Curve) (*KeyPair, error) {
-	s, x, y, err := elliptic.GenerateKey(curve, rand.Reader)
-	if err != nil {
-		return nil, err
-	}
-	return &KeyPair{
-		Secret: s,
-		Public: Point{
-			X: x,
-			Y: y,
-		},
-	}, nil
+func NewKeyPair(curve elliptic.Curve) (*ecdsa.PrivateKey, error) {
+	return ecdsa.GenerateKey(Curve, rand.Reader)
 }
 
 var Curve = elliptic.P521()
@@ -103,10 +94,12 @@ func NewDB(shard Shard) (*Db, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Db{
+	db := &Db{
 		State:   make(map[Shard]*State),
-		KeyPair: kp,
-	}, nil
+	}
+	db.State[shard] = NewState()
+	db.State[shard].KeyPair = kp
+	return db, nil
 }
 
 func (state *State) sum(h []byte, neg bool) {
@@ -213,13 +206,21 @@ func (db *Db) Checksum(shard Shard) string {
 	)
 }
 
-func (db *Db) Get(shard Shard, id Id) *DataRecord {
-	return db.State[shard].Data[id]
+func (db *Db) Sign(shard Shard) (*Point, error) {
+	h := sha256.New().Sum([]byte(db.Checksum(shard)))
+	r,s,err := ecdsa.Sign(rand.Reader, db.State[shard].KeyPair, h)
+	return &Point{X:r, Y:s}, err
 }
 
-type KeyPair struct {
-	Secret []byte
-	Public Point
+func (db *Db) Verify(shard Shard, sig *Point) bool {
+	h := sha256.New().Sum([]byte(db.Checksum(shard)))
+	r := sig.X
+	s := sig.Y
+	return ecdsa.Verify(&db.State[shard].KeyPair.PublicKey, h, r, s)
+}
+
+func (db *Db) Get(shard Shard, id Id) *DataRecord {
+	return db.State[shard].Data[id]
 }
 
 func main() {
@@ -237,6 +238,11 @@ func main() {
 		},
 	})
 	fmt.Printf("id1: %s\n\n", db.Checksum(dbShard))
+	sig, err := db.Sign(dbShard)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("sign %d: %s\n\n", dbShard, AsJson(sig))
 
 	db.Do(Command{
 		Action: ActionInsert,
@@ -250,7 +256,8 @@ func main() {
 	db.Do(Command{Action: ActionRemove, Record: db.Get(dbShard, 2)})
 	fmt.Printf("id1: %s\n\n", db.Checksum(dbShard))
 
-	///*
+
+	/*
 	// BUG .... this should not affect dbShard at all!
 	dbShard2 := Shard(202)
 	db.Do(Command{
@@ -261,8 +268,11 @@ func main() {
 		},
 	})
 	fmt.Printf("shard %d, id1: %s\n\n", dbShard2, db.Checksum(dbShard2))
-	db.Do(Command{Action: ActionRemove, Record: db.Get(dbShard2, 1)})
-	//*/
+	//db.Do(Command{Action: ActionRemove, Record: db.Get(dbShard2, 1)})
+	*/
+
+	verified := db.Verify(dbShard, sig)
+	fmt.Printf("verify: %t\n\n", verified)
 
 	db.Do(Command{Action: ActionRemove, Record: db.Get(dbShard, 1)})
 	fmt.Printf("empty checksum: %s\n\n", db.Checksum(dbShard))
