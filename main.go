@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"math/big"
 	"sync"
+	"log"
 )
 
 type Reference struct {
@@ -53,21 +54,21 @@ type Point struct {
 }
 
 type State struct {
-	Data map[Id]*DataRecord
-	Checksum *Point
+	Data      map[Id]*DataRecord
+	Checksum  *Point
 	PublicKey *Point
+	HighestId Id
 }
 
 func NewState() *State {
 	return &State{
-		Data: make(map[Id]*DataRecord),
+		Data:     make(map[Id]*DataRecord),
 		Checksum: ZeroPoint,
 	}
 }
 
 type Db struct {
-	KeyPair *KeyPair
-	Shard   Shard
+//	KeyPair *KeyPair
 	State   map[Shard]*State
 	Lock    sync.Mutex
 	Curve   elliptic.Curve
@@ -81,7 +82,7 @@ func zeroPoint(curve elliptic.Curve) *Point {
 	}
 }
 
-func NewKeyPair(curve elliptic.Curve) (*KeyPair,error) {
+func NewKeyPair(curve elliptic.Curve) (*KeyPair, error) {
 	s, x, y, err := elliptic.GenerateKey(curve, rand.Reader)
 	if err != nil {
 		return nil, err
@@ -89,61 +90,64 @@ func NewKeyPair(curve elliptic.Curve) (*KeyPair,error) {
 	return &KeyPair{
 		Secret: s,
 		Point: Point{
-			X:      x,
-			Y:      y,
+			X: x,
+			Y: y,
 		},
-	},nil
+	}, nil
 }
 
 var ZeroPoint = zeroPoint(elliptic.P521())
 
 func NewDB(shard Shard) (*Db, error) {
 	curve := elliptic.P521()
-	kp,err := NewKeyPair(curve)
+/*
+	kp, err := NewKeyPair(curve)
 	if err != nil {
-		return nil,err
-	} 
-	//data := make(map[Shard]map[Id]*DataRecord)
-	//states := make(map[Shard]*Point)
+		return nil, err
+	}
+*/
 	return &Db{
-		Shard:   shard,
-		//Data:    data,
-		//State:   states,
-		State: make(map[Shard]*State),
-		KeyPair: kp,
+		State:   make(map[Shard]*State),
+		//KeyPair: kp,
 		Curve:   curve,
 	}, nil
 }
 
-func (db *Db) sum(shard Shard, h []byte, neg bool) {
+func (db *Db) sum(state *State, h []byte, neg bool) {
 	x1, y1 := db.Curve.ScalarBaseMult(h)
 	if neg {
 		y1 = new(big.Int).Neg(y1)
 	}
-	p := db.State[shard].Checksum
-	x2, y2 := db.Curve.Add(p.X, p.Y, x1, y1)
-	p.X = x2
-	p.Y = y2
-	db.State[shard].Checksum = p
+	ck := state.Checksum
+	x2, y2 := db.Curve.Add(ck.X, ck.Y, x1, y1)
+	ck.X = x2
+	ck.Y = y2
 }
 
 // Insert the object only if it does not already exist
 func (db *Db) Insert(v *DataRecord) (*DataRecord, error) {
 	db.Lock.Lock()
 	defer db.Lock.Unlock()
+
 	shard := v.Shard
-	id := v.Id
 	if db.State[shard] == nil {
 		db.State[shard] = NewState()
 	}
-	_, ok := db.State[shard].Data[id]
+	st := db.State[shard]
+	if v.Id == 0 {
+		st.HighestId++
+		v.Id = st.HighestId	
+	}
+	id := v.Id
+
+	_, ok := st.Data[id]
 	if ok {
 		return nil, fmt.Errorf("object %d already exists", id)
 	}
 	j := AsJson(v)
 	h := sha256.New().Sum([]byte(j))
-	db.sum(shard, h, false)
-	db.State[shard].Data[id] = v
+	db.sum(st, h, false)
+	st.Data[id] = v
 	return nil, nil
 }
 
@@ -151,12 +155,16 @@ func (db *Db) Insert(v *DataRecord) (*DataRecord, error) {
 func (db *Db) Remove(vToRemove *DataRecord) (*DataRecord, error) {
 	db.Lock.Lock()
 	defer db.Lock.Unlock()
-	id := vToRemove.Id
+
 	shard := vToRemove.Shard
+
 	if db.State[shard] == nil {
 		db.State[shard] = NewState()
 	}
-	v, ok := db.State[shard].Data[id]
+	st := db.State[shard]
+	id := vToRemove.Id
+
+	v, ok := st.Data[id]
 	if !ok {
 		return nil, fmt.Errorf(
 			"object %d:%d cannot be removed, because it does not exist",
@@ -173,19 +181,25 @@ func (db *Db) Remove(vToRemove *DataRecord) (*DataRecord, error) {
 			shard, id,
 		)
 	}
-	db.sum(shard, h, true)
-	delete(db.State[shard].Data, id)
+	db.sum(st, h, true)
+	delete(st.Data, id)
 	return v, nil
 }
 
 func (db *Db) Do(cmd Command) (*DataRecord, error) {
+	var r *DataRecord
+	var err error
 	if cmd.Action == ActionInsert {
-		return db.Insert(cmd.Record)
+		r, err = db.Insert(cmd.Record)
 	}
 	if cmd.Action == ActionRemove {
-		return db.Remove(cmd.Record)
+		r, err = db.Remove(cmd.Record)
 	}
-	return nil, nil
+	if err != nil {
+		log.Printf("error! %v", err)
+	}
+	log.Printf("%s", AsJson(cmd))
+	return r, err
 }
 
 func (db *Db) Checksum(shard Shard) string {
@@ -193,63 +207,67 @@ func (db *Db) Checksum(shard Shard) string {
 	defer db.Lock.Unlock()
 	st, ok := db.State[shard]
 	if !ok {
-		return ","
+		return fmt.Sprintf("%d:,", shard)
 	}
 	return fmt.Sprintf(
-		"%s,%s",
+		"%d:%s,%s",
+		shard,
 		hex.EncodeToString(st.Checksum.X.Bytes()),
 		hex.EncodeToString(st.Checksum.Y.Bytes()),
 	)
 }
 
+func (db *Db) Get(shard Shard, id Id) *DataRecord {
+	return db.State[shard].Data[id]
+}
+
 type KeyPair struct {
 	Secret []byte
-	Point Point
+	Point  Point
 }
 
 func main() {
-	db, err := NewDB(42)
+	dbShard := Shard(33)
+	db, err := NewDB(dbShard)
 	if err != nil {
 		panic(err)
 	}
-	fmt.Printf("initial checksum: %s\n\n", db.Checksum(db.Shard))
+	fmt.Printf("initial checksum: %s\n\n", db.Checksum(dbShard))
 	db.Do(Command{
 		Action: ActionInsert,
 		Record: &DataRecord{
-			Shard: db.Shard,
-			Id:    1,
+			Shard: dbShard,
 			TTL:   20,
 			Name:  "initial",
 		},
 	})
-	fmt.Printf("id1: %s\n\n", db.Checksum(db.Shard))
+	fmt.Printf("id1: %s\n\n", db.Checksum(dbShard))
 
 	db.Do(Command{
 		Action: ActionInsert,
 		Record: &DataRecord{
-			Shard: db.Shard,
-			Id:    2,
+			Shard: dbShard,
 			TTL:   21,
 			Name:  "secondary",
 		},
 	})
-	fmt.Printf("id1 + id2: %s\n\n", db.Checksum(db.Shard))
+	fmt.Printf("id1+id2: %s\n\n", db.Checksum(dbShard))
 
-	db.Do(Command{Action: ActionRemove, Record: db.State[db.Shard].Data[2]})
-	fmt.Printf("id1: %s\n\n", db.Checksum(db.Shard))
-
-	db.Do(Command{Action: ActionRemove, Record: db.State[db.Shard].Data[1]})
-	fmt.Printf("empty checksum: %s\n\n", db.Checksum(db.Shard))
-
-	db.Do(Command{
-		Action: ActionInsert,
-		Record: &DataRecord{
-			Shard: 101,
-			Id:    1,
-			TTL:   50,
-			Name:  "otherdata",
-		},
-	})
-	fmt.Printf("shard %d, id1: %s\n\n", 101, db.Checksum(101))
+	db.Do(Command{Action: ActionRemove, Record: db.Get(dbShard, 2)})
+	fmt.Printf("id1: %s\n\n", db.Checksum(dbShard))
+	/*
+		dbShard2 := Shard(202)
+		db.Do(Command{
+			Action: ActionInsert,
+			Record: &DataRecord{
+				Shard: dbShard2,
+				TTL:   50,
+				Name:  "otherdata",
+			},
+		})
+		fmt.Printf("shard %d, id1: %s\n\n", dbShard2, db.Checksum(dbShard2))
+	*/
+	db.Do(Command{Action: ActionRemove, Record: db.Get(dbShard, 1)})
+	fmt.Printf("empty checksum: %s\n\n", db.Checksum(dbShard))
 
 }
