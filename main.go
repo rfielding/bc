@@ -44,7 +44,7 @@ type DataRecord struct {
 type State struct {
 	Data      map[Id]*DataRecord `json:"data,omitempty"`
 	KeyPair   *ecdsa.PrivateKey  `json:"keypair,omitempty"`
-	Checksum  *Point             `json:"checksum,omitempty"`
+	Checksum  Point              `json:"checksum,omitempty"`
 	PublicKey *Point             `json:"publickey,omitempty"`
 	HighestId Id                 `json:"highestid,omitempty"`
 }
@@ -77,9 +77,9 @@ func newState() *State {
 	}
 }
 
-func zeroPoint(curve elliptic.Curve) *Point {
+func zeroPoint(curve elliptic.Curve) Point {
 	xInit, yInit := curve.ScalarBaseMult(nil)
-	return &Point{
+	return Point{
 		X: xInit,
 		Y: yInit,
 	}
@@ -111,6 +111,7 @@ func (state *State) sum(h []byte, neg bool) {
 	x2, y2 := Curve.Add(ck.X, ck.Y, x1, y1)
 	ck.X = x2
 	ck.Y = y2
+	state.Checksum = ck
 }
 
 // Insert the object only if it does not already exist
@@ -264,7 +265,6 @@ func main() {
 	})
 	fmt.Printf("id1: %s\n\n", db.Checksum(dbShard))
 
-	// BUG .... this should not affect dbShard at all!
 	dbShard2 := Shard(202)
 	db.Do(Command{
 		Action: ActionInsert,
@@ -273,11 +273,6 @@ func main() {
 			TTL:   50,
 		},
 	})
-	fmt.Printf("shard %d, id1: %s\n\n", dbShard2, db.Checksum(dbShard2))
-	db.Do(Command{
-		Action: ActionRemove, 
-		Record: db.Get(dbShard2, dbShard_1.Id),
-	})
 
 	verified := db.Verify(dbShard, sig)
 	fmt.Printf("verify: %t\n\n", verified)
@@ -285,5 +280,10 @@ func main() {
 	db.Do(Command{Action: ActionRemove, Record: db.Get(dbShard, 1)})
 	fmt.Printf("empty checksum: %s\n\n", db.Checksum(dbShard))
 
-	//fmt.Printf("%s\n\n", AsJson(db))
+	// empty out the other shard
+	db.Do(Command{
+		Action: ActionRemove, 
+		Record: db.Get(dbShard2, dbShard_1.Id),
+	})
+	fmt.Printf("shard %d, id1: %s\n\n", dbShard2, db.Checksum(dbShard2))
 }
