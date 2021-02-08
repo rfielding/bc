@@ -128,6 +128,9 @@ func (db *Db) Insert(v *DataRecord) (*DataRecord, error) {
 		v.Id = st.HighestId
 	}
 	id := v.Id
+	if st.HighestId < v.Id {
+		st.HighestId = v.Id
+	}
 
 	_, ok := st.Data[id]
 	if ok {
@@ -186,6 +189,7 @@ func (db *Db) Do(cmd Command) (*DataRecord, error) {
 	}
 	if err != nil {
 		log.Printf("error! %v", err)
+		return nil, err
 	}
 	log.Printf("%s", AsJson(cmd))
 	return r, err
@@ -206,13 +210,13 @@ func (db *Db) Checksum(shard Shard) string {
 	)
 }
 
-func (db *Db) Sign(shard Shard) (*Point, error) {
+func (db *Db) Sign(shard Shard) (Point, error) {
 	h := sha256.New().Sum([]byte(db.Checksum(shard)))
 	r, s, err := ecdsa.Sign(rand.Reader, db.State[shard].KeyPair, h)
-	return &Point{X: r, Y: s}, err
+	return Point{X: r, Y: s}, err
 }
 
-func (db *Db) Verify(shard Shard, sig *Point) bool {
+func (db *Db) Verify(shard Shard, sig Point) bool {
 	h := sha256.New().Sum([]byte(db.Checksum(shard)))
 	r := sig.X
 	s := sig.Y
