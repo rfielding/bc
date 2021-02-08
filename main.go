@@ -29,12 +29,12 @@ type Command struct {
 }
 
 type DataRecord struct {
-	Shard   Shard
-	Id      Id
-	TTL     int64
-	Refs    map[string]Reference
-	Name    string
-	Strings map[string]string
+	Shard   Shard                `json:"shard,omitempty"`
+	Id      Id                   `json:"id,omitempty"`
+	TTL     int64                `json:"ttl,omitempty"`
+	Refs    map[string]Reference `json:"refs,omitempty"`
+	Ints    map[string]int64     `json:"ints,omitempty"` 
+	Strings map[string]string    `json:"strings,omitempty"`
 }
 
 func AsJson(v interface{}) string {
@@ -225,7 +225,7 @@ type KeyPair struct {
 }
 
 func main() {
-	dbShard := Shard(33)
+	dbShard := Shard(22)
 	db, err := NewDB(dbShard)
 	if err != nil {
 		panic(err)
@@ -236,7 +236,6 @@ func main() {
 		Record: &DataRecord{
 			Shard: dbShard,
 			TTL:   20,
-			Name:  "initial",
 		},
 	})
 	fmt.Printf("id1: %s\n\n", db.Checksum(dbShard))
@@ -246,25 +245,26 @@ func main() {
 		Record: &DataRecord{
 			Shard: dbShard,
 			TTL:   21,
-			Name:  "secondary",
 		},
 	})
 	fmt.Printf("id1+id2: %s\n\n", db.Checksum(dbShard))
 
 	db.Do(Command{Action: ActionRemove, Record: db.Get(dbShard, 2)})
 	fmt.Printf("id1: %s\n\n", db.Checksum(dbShard))
-	/*	
+
+	/*
+	// BUG .... this should not affect dbShard at all!	
 		dbShard2 := Shard(202)
 		db.Do(Command{
 			Action: ActionInsert,
 			Record: &DataRecord{
 				Shard: dbShard2,
 				TTL:   50,
-				Name:  "otherdata",
 			},
 		})
 		fmt.Printf("shard %d, id1: %s\n\n", dbShard2, db.Checksum(dbShard2))
 	*/
+
 	db.Do(Command{Action: ActionRemove, Record: db.Get(dbShard, 1)})
 	fmt.Printf("empty checksum: %s\n\n", db.Checksum(dbShard))
 
