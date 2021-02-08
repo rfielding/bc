@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
@@ -11,22 +12,24 @@ import (
 	"log"
 	"math/big"
 	"sync"
-	"crypto/ecdsa"
 )
-
-type Reference struct {
-	Shard Shard
-	Id    Id
-}
 
 type Action int
 
 const ActionInsert = Action(0)
 const ActionRemove = Action(1)
 
+type Id int64
+type Shard int64
+
+type Reference struct {
+	Shard Shard `json:"shard,omitempty"`
+	Id    Id    `json:"id,omitempty"`
+}
+
 type Command struct {
-	Action Action
-	Record *DataRecord
+	Action Action      `json:"action,omitempty"`
+	Record *DataRecord `json:"record,omitempty"`
 }
 
 type DataRecord struct {
@@ -38,6 +41,27 @@ type DataRecord struct {
 	Strings map[string]string    `json:"strings,omitempty"`
 }
 
+type State struct {
+	Data      map[Id]*DataRecord `json:"data,omitempty"`
+	KeyPair   *ecdsa.PrivateKey  `json:"keypair,omitempty"`
+	Checksum  *Point             `json:"checksum,omitempty"`
+	PublicKey *Point             `json:"publickey,omitempty"`
+	HighestId Id                 `json:"highestid,omitempty"`
+}
+
+type Point struct {
+	X *big.Int `json:"x,omitempty"`
+	Y *big.Int `json:"y,omitempty"`
+}
+
+type Db struct {
+	State map[Shard]*State `json:"state,omitempty"`
+	Lock  sync.Mutex       `json:-`
+}
+
+var Curve = elliptic.P521()
+var zPoint = zeroPoint(Curve)
+
 func AsJson(v interface{}) string {
 	s, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
@@ -46,32 +70,11 @@ func AsJson(v interface{}) string {
 	return string(s)
 }
 
-type Id int64
-type Shard int64
-
-type Point struct {
-	X *big.Int
-	Y *big.Int
-}
-
-type State struct {
-	Data      map[Id]*DataRecord
-	KeyPair   *ecdsa.PrivateKey
-	Checksum  *Point
-	PublicKey *Point
-	HighestId Id
-}
-
-func NewState() *State {
+func newState() *State {
 	return &State{
 		Data:     make(map[Id]*DataRecord),
-		Checksum: ZeroPoint,
+		Checksum: zPoint,
 	}
-}
-
-type Db struct {
-	State   map[Shard]*State
-	Lock    sync.Mutex
 }
 
 func zeroPoint(curve elliptic.Curve) *Point {
@@ -82,22 +85,19 @@ func zeroPoint(curve elliptic.Curve) *Point {
 	}
 }
 
-func NewKeyPair(curve elliptic.Curve) (*ecdsa.PrivateKey, error) {
+func newKeyPair(curve elliptic.Curve) (*ecdsa.PrivateKey, error) {
 	return ecdsa.GenerateKey(Curve, rand.Reader)
 }
 
-var Curve = elliptic.P521()
-var ZeroPoint = zeroPoint(Curve)
-
 func NewDB(shard Shard) (*Db, error) {
-	kp, err := NewKeyPair(Curve)
+	kp, err := newKeyPair(Curve)
 	if err != nil {
 		return nil, err
 	}
 	db := &Db{
-		State:   make(map[Shard]*State),
+		State: make(map[Shard]*State),
 	}
-	db.State[shard] = NewState()
+	db.State[shard] = newState()
 	db.State[shard].KeyPair = kp
 	return db, nil
 }
@@ -120,7 +120,7 @@ func (db *Db) Insert(v *DataRecord) (*DataRecord, error) {
 
 	shard := v.Shard
 	if db.State[shard] == nil {
-		db.State[shard] = NewState()
+		db.State[shard] = newState()
 	}
 	st := db.State[shard]
 	if v.Id == 0 {
@@ -148,7 +148,7 @@ func (db *Db) Remove(vToRemove *DataRecord) (*DataRecord, error) {
 	shard := vToRemove.Shard
 
 	if db.State[shard] == nil {
-		db.State[shard] = NewState()
+		db.State[shard] = newState()
 	}
 	st := db.State[shard]
 	id := vToRemove.Id
@@ -208,8 +208,8 @@ func (db *Db) Checksum(shard Shard) string {
 
 func (db *Db) Sign(shard Shard) (*Point, error) {
 	h := sha256.New().Sum([]byte(db.Checksum(shard)))
-	r,s,err := ecdsa.Sign(rand.Reader, db.State[shard].KeyPair, h)
-	return &Point{X:r, Y:s}, err
+	r, s, err := ecdsa.Sign(rand.Reader, db.State[shard].KeyPair, h)
+	return &Point{X: r, Y: s}, err
 }
 
 func (db *Db) Verify(shard Shard, sig *Point) bool {
@@ -256,8 +256,6 @@ func main() {
 	db.Do(Command{Action: ActionRemove, Record: db.Get(dbShard, 2)})
 	fmt.Printf("id1: %s\n\n", db.Checksum(dbShard))
 
-
-	/*
 	// BUG .... this should not affect dbShard at all!
 	dbShard2 := Shard(202)
 	db.Do(Command{
@@ -268,8 +266,7 @@ func main() {
 		},
 	})
 	fmt.Printf("shard %d, id1: %s\n\n", dbShard2, db.Checksum(dbShard2))
-	//db.Do(Command{Action: ActionRemove, Record: db.Get(dbShard2, 1)})
-	*/
+	db.Do(Command{Action: ActionRemove, Record: db.Get(dbShard2, 1)})
 
 	verified := db.Verify(dbShard, sig)
 	fmt.Printf("verify: %t\n\n", verified)
