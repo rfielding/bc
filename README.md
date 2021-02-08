@@ -71,3 +71,8 @@ With trash compacting, the longer full stream of events should hash to the same 
 ![crdt.png](crdt.png)
 
 The main synchronization is in getting eventual consistency between peers.  All pointers must point _back_ to existing data, so being up to date is consistent.  The running checksum per shard can be combined with signatures from the owner of the shard; to know that the owner signs off on the contents of the shard.
+
+
+![steadystate.png](steadystate.png)
+
+When events go into a system, we must be able to remove events at the same rate that they are inserted.  Otherwise, the event stream and database will grow to unbounded size.  We need to checksum the contents of the database.  A typical blockchain is checksumming the data stream.  But if there is high turnover in the database, with arrival rates equaling departure rates for records in the database; then the size of the database will stabilize.  When arrivals outpace departures, the database size increases.  Sharding also helps to eliminate bottlenecks, and only be limited by causality concerns.
