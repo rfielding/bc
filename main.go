@@ -9,66 +9,22 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"sync"
 )
-
-/*
-  Experiment in an alternative "blockchain-style" database.
-  Current blockchains (ie: hashpointered data structures)
-  are integrity checking the EVENT STREAM that creates
-  the database, rather than integrity checking the DATA.
-
-  You should get the same signature on the database if
-  the contents are the same.  The event stream grows
-  ever larger, so it can't be garbage collected.
-
-  But if the actual DATA created by the event stream
-  has the same checksum after compaction as the checksum
-  you get by creating it FROM the event stream, then
-  this opens up the possibility of a garbage-collected
-  block chain.
-
-  Example:
-  - records with TTL states on them.
-  - each record insert increases a logical clock time.
-  - when TTL passes for a record, it is permissible to remove the record.
-  - in the hash of the database, so it can be physically removed.
-  - In order for not grow indefinitely:
-    - It must be possible for the Insert rate to match Remove rate
-    - When insert rate is higher than remove rate, data usage grows indefinitely
-    - Inactive data can be purged.
-
-  The idea is to lease space in the database.  If it is to live for a long time,
-  then this privilege must be paid for; or the lease must be periodically
-  renewed.  Otherwise, orphans can never exit the system.
-
-  The basic idea:
-
-  - Instead of a block chain like:
-     H( ... H( H(record0) + record1) ... )
-  - Do more like this, so hashes commute:
-     H(record0) + H(record1) + H(record2) + ...
-  - Use Elliptic curve points to accumulate data
-  - Remove records by subtracting them out of the point sum
-
-  Use the "immutable" log to generate a mutable DATABASE,
-  in a Paxos/Raft style.
-
-  But DONT checksum the log.  Checksum the DATA.
-  Trash-compacted data signatures should come out the same
-  as signatures over the original event log.
-
-  Events (mostly) commute.  If a record is inserted before removed,
-  then the database result will be different from when it is
-  removed before it is inserted.  But this is fine.
-  We want to know if database states are consistent.
-
-  Insert and Remove events should be maintained in a
-  list from a given state.  This is used to efficiently diff two copies.
-*/
 
 type Reference struct {
 	Shard Shard
 	Id    Id
+}
+
+type Action int
+
+const ActionInsert = Action(0)
+const ActionRemove = Action(1)
+
+type Command struct {
+	Action Action
+	Record *DataRecord
 }
 
 type DataRecord struct {
@@ -97,10 +53,11 @@ type Point struct {
 }
 
 type Db struct {
+	KeyPair KeyPair
 	Shard   Shard
 	Data    map[Shard]map[Id]*DataRecord
 	State   map[Shard]Point
-	KeyPair KeyPair
+	Lock    sync.Mutex
 }
 
 func NewDB(shard Shard) (*Db, error) {
@@ -116,7 +73,6 @@ func NewDB(shard Shard) (*Db, error) {
 	}
 	xInit, yInit := kp.Curve.ScalarBaseMult(nil)
 	data := make(map[Shard]map[Id]*DataRecord)
-	data[shard] = make(map[Id]*DataRecord)
 	states := make(map[Shard]Point)
 	states[shard] = Point{
 		X: xInit,
@@ -130,58 +86,85 @@ func NewDB(shard Shard) (*Db, error) {
 	}, nil
 }
 
-func (db *Db) sum(h []byte, neg bool) {
+func (db *Db) sum(shard Shard,h []byte, neg bool) {
 	x1, y1 := db.KeyPair.Curve.ScalarBaseMult(h)
 	if neg {
 		y1 = new(big.Int).Neg(y1)
 	}
-	p := db.State[db.Shard]
+	p := db.State[shard]
 	x2, y2 := db.KeyPair.Curve.Add(p.X, p.Y, x1, y1)
 	p.X = x2
 	p.Y = y2
-	db.State[db.Shard] = p
+	db.State[shard] = p
 }
 
-// Insert the record if it does not exist
-// Delete and re-insert if it exists with a different
-// value
-func (db *Db) Insert(v *DataRecord) error {
-	var hExisting []byte
-	vExisting, ok := db.Data[db.Shard][v.Id]
+// Insert the object only if it does not already exist
+func (db *Db) Insert(v *DataRecord) (*DataRecord, error) {
+	db.Lock.Lock()
+	defer db.Lock.Unlock()
+	shard := v.Shard
+	id := v.Id
+	if db.Data[shard] == nil {
+		db.Data[shard] = make(map[Id]*DataRecord)
+	}
+	_, ok := db.Data[shard][id]
 	if ok {
-		jExisting := AsJson(vExisting)
-		hExisting = sha256.New().Sum([]byte(jExisting))
+		return nil, fmt.Errorf("object %d already exists", id)
 	}
 	j := AsJson(v)
 	h := sha256.New().Sum([]byte(j))
-	// Do nothing if there was an attempt to double-add
-	if bytes.Compare(hExisting, h) == 0 {
-		return nil
-	}
-	// Remove and re-add
-	if len(hExisting) > 0 {
-		db.Remove(v.Id)
-	}
-	db.sum(h, false)
-	db.Data[db.Shard][v.Id] = v
-	return nil
+	db.sum(shard, h, false)
+	db.Data[shard][id] = v
+	return nil, nil
 }
 
-// Remove the record if it is there
-// or do nothing if it is not there
-func (db *Db) Remove(id Id) (*DataRecord, error) {
-	v, ok := db.Data[db.Shard][id]
-	if !ok {
-		return nil, nil
+// Remove the record only if it is there
+func (db *Db) Remove(vToRemove *DataRecord) (*DataRecord, error) {
+	db.Lock.Lock()
+	defer db.Lock.Unlock()
+	id := vToRemove.Id
+	shard := vToRemove.Shard
+	if db.Data[shard] == nil {
+		db.Data[shard] = make(map[Id]*DataRecord)
 	}
+	v, ok := db.Data[shard][id]
+	if !ok {
+		return nil, fmt.Errorf(
+			"object %d:%d cannot be removed, because it does not exist",
+			shard,id,
+		)
+	}
+	jToRemove := AsJson(vToRemove)
+	hToRemove := sha256.New().Sum([]byte(jToRemove))
 	j := AsJson(v)
 	h := sha256.New().Sum([]byte(j))
-	db.sum(h, true)
-	delete(db.Data[db.Shard], id)
+	if bytes.Compare(hToRemove, h) != 0 {
+		return nil, fmt.Errorf(
+			"we are not removing the object %d:%d we think we are removing",
+			shard,id,
+		)
+	}
+	db.sum(shard,h, true)
+	delete(db.Data[shard], id)
+	if len(db.Data[shard]) == 0 {
+		delete(db.Data,shard)
+	}
 	return v, nil
 }
 
+func (db *Db) Do(cmd Command) (*DataRecord, error) {
+	if cmd.Action == ActionInsert {
+		return db.Insert(cmd.Record)
+	}
+	if cmd.Action == ActionRemove {
+		return db.Remove(cmd.Record)
+	}
+	return nil, nil
+}
+
 func (db *Db) Checksum() string {
+	db.Lock.Lock()
+	defer db.Lock.Unlock()
 	return fmt.Sprintf(
 		"%s,%s",
 		hex.EncodeToString(db.State[db.Shard].X.Bytes()),
@@ -202,24 +185,31 @@ func main() {
 		panic(err)
 	}
 	fmt.Printf("initial checksum: %s\n\n", db.Checksum())
-	db.Insert(&DataRecord{
-		Shard: db.Shard,
-		Id:   1,
-		TTL:  20,
-		Name: "initial",
+	db.Do(Command{
+		Action: ActionInsert,
+		Record: &DataRecord{
+			Shard: db.Shard,
+			Id:    1,
+			TTL:   20,
+			Name:  "initial",
+		},
 	})
 	fmt.Printf("id1: %s\n\n", db.Checksum())
-	db.Insert(&DataRecord{
-		Shard: db.Shard,
-		Id:   2,
-		TTL:  21,
-		Name: "secondary",
+
+	db.Do(Command{
+		Action: ActionInsert,
+		Record: &DataRecord{
+			Shard: db.Shard,
+			Id:    2,
+			TTL:   21,
+			Name:  "secondary",
+		},
 	})
 	fmt.Printf("id1 + id2: %s\n\n", db.Checksum())
 
-	db.Remove(2)
+	db.Do(Command{Action: ActionRemove, Record: db.Data[db.Shard][2]})
 	fmt.Printf("id1: %s\n\n", db.Checksum())
 
-	db.Remove(1)
+	db.Do(Command{Action: ActionRemove, Record: db.Data[db.Shard][1]})
 	fmt.Printf("empty checksum: %s\n\n", db.Checksum())
 }
