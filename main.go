@@ -52,11 +52,23 @@ type Point struct {
 	Y *big.Int
 }
 
+type State struct {
+	Data map[Id]*DataRecord
+	Checksum *Point
+	PublicKey *Point
+}
+
+func NewState() *State {
+	return &State{
+		Data: make(map[Id]*DataRecord),
+		Checksum: ZeroPoint,
+	}
+}
+
 type Db struct {
 	KeyPair *KeyPair
 	Shard   Shard
-	Data    map[Shard]map[Id]*DataRecord
-	State   map[Shard]*Point
+	State   map[Shard]*State
 	Lock    sync.Mutex
 	Curve   elliptic.Curve
 }
@@ -91,13 +103,14 @@ func NewDB(shard Shard) (*Db, error) {
 	if err != nil {
 		return nil,err
 	} 
-	data := make(map[Shard]map[Id]*DataRecord)
-	states := make(map[Shard]*Point)
+	//data := make(map[Shard]map[Id]*DataRecord)
+	//states := make(map[Shard]*Point)
 	return &Db{
 		Shard:   shard,
-		Data:    data,
+		//Data:    data,
+		//State:   states,
+		State: make(map[Shard]*State),
 		KeyPair: kp,
-		State:   states,
 		Curve:   curve,
 	}, nil
 }
@@ -107,11 +120,11 @@ func (db *Db) sum(shard Shard, h []byte, neg bool) {
 	if neg {
 		y1 = new(big.Int).Neg(y1)
 	}
-	p := db.State[shard]
+	p := db.State[shard].Checksum
 	x2, y2 := db.Curve.Add(p.X, p.Y, x1, y1)
 	p.X = x2
 	p.Y = y2
-	db.State[shard] = p
+	db.State[shard].Checksum = p
 }
 
 // Insert the object only if it does not already exist
@@ -120,20 +133,17 @@ func (db *Db) Insert(v *DataRecord) (*DataRecord, error) {
 	defer db.Lock.Unlock()
 	shard := v.Shard
 	id := v.Id
-	if db.Data[shard] == nil {
-		db.Data[shard] = make(map[Id]*DataRecord)
-	}
 	if db.State[shard] == nil {
-		db.State[shard] = ZeroPoint
+		db.State[shard] = NewState()
 	}
-	_, ok := db.Data[shard][id]
+	_, ok := db.State[shard].Data[id]
 	if ok {
 		return nil, fmt.Errorf("object %d already exists", id)
 	}
 	j := AsJson(v)
 	h := sha256.New().Sum([]byte(j))
 	db.sum(shard, h, false)
-	db.Data[shard][id] = v
+	db.State[shard].Data[id] = v
 	return nil, nil
 }
 
@@ -143,13 +153,10 @@ func (db *Db) Remove(vToRemove *DataRecord) (*DataRecord, error) {
 	defer db.Lock.Unlock()
 	id := vToRemove.Id
 	shard := vToRemove.Shard
-	if db.Data[shard] == nil {
-		db.Data[shard] = make(map[Id]*DataRecord)
-	}
 	if db.State[shard] == nil {
-		db.State[shard] = ZeroPoint
+		db.State[shard] = NewState()
 	}
-	v, ok := db.Data[shard][id]
+	v, ok := db.State[shard].Data[id]
 	if !ok {
 		return nil, fmt.Errorf(
 			"object %d:%d cannot be removed, because it does not exist",
@@ -167,10 +174,7 @@ func (db *Db) Remove(vToRemove *DataRecord) (*DataRecord, error) {
 		)
 	}
 	db.sum(shard, h, true)
-	delete(db.Data[shard], id)
-	if len(db.Data[shard]) == 0 {
-		delete(db.Data, shard)
-	}
+	delete(db.State[shard].Data, id)
 	return v, nil
 }
 
@@ -187,14 +191,14 @@ func (db *Db) Do(cmd Command) (*DataRecord, error) {
 func (db *Db) Checksum(shard Shard) string {
 	db.Lock.Lock()
 	defer db.Lock.Unlock()
-	s, ok := db.State[shard]
+	st, ok := db.State[shard]
 	if !ok {
 		return ","
 	}
 	return fmt.Sprintf(
 		"%s,%s",
-		hex.EncodeToString(s.X.Bytes()),
-		hex.EncodeToString(s.Y.Bytes()),
+		hex.EncodeToString(st.Checksum.X.Bytes()),
+		hex.EncodeToString(st.Checksum.Y.Bytes()),
 	)
 }
 
@@ -231,10 +235,10 @@ func main() {
 	})
 	fmt.Printf("id1 + id2: %s\n\n", db.Checksum(db.Shard))
 
-	db.Do(Command{Action: ActionRemove, Record: db.Data[db.Shard][2]})
+	db.Do(Command{Action: ActionRemove, Record: db.State[db.Shard].Data[2]})
 	fmt.Printf("id1: %s\n\n", db.Checksum(db.Shard))
 
-	db.Do(Command{Action: ActionRemove, Record: db.Data[db.Shard][1]})
+	db.Do(Command{Action: ActionRemove, Record: db.State[db.Shard].Data[1]})
 	fmt.Printf("empty checksum: %s\n\n", db.Checksum(db.Shard))
 
 	db.Do(Command{
