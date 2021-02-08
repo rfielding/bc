@@ -8,9 +8,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"math/big"
 	"sync"
-	"log"
 )
 
 type Reference struct {
@@ -33,7 +33,7 @@ type DataRecord struct {
 	Id      Id                   `json:"id,omitempty"`
 	TTL     int64                `json:"ttl,omitempty"`
 	Refs    map[string]Reference `json:"refs,omitempty"`
-	Ints    map[string]int64     `json:"ints,omitempty"` 
+	Ints    map[string]int64     `json:"ints,omitempty"`
 	Strings map[string]string    `json:"strings,omitempty"`
 }
 
@@ -132,7 +132,7 @@ func (db *Db) Insert(v *DataRecord) (*DataRecord, error) {
 	st := db.State[shard]
 	if v.Id == 0 {
 		st.HighestId++
-		v.Id = st.HighestId	
+		v.Id = st.HighestId
 	}
 	id := v.Id
 
@@ -251,17 +251,17 @@ func main() {
 	fmt.Printf("id1: %s\n\n", db.Checksum(dbShard))
 
 	///*
-	// BUG .... this should not affect dbShard at all!	
-		dbShard2 := Shard(202)
-		db.Do(Command{
-			Action: ActionInsert,
-			Record: &DataRecord{
-				Shard: dbShard2,
-				TTL:   50,
-			},
-		})
-		fmt.Printf("shard %d, id1: %s\n\n", dbShard2, db.Checksum(dbShard2))
-		db.Do(Command{Action:ActionRemove,Record: db.Get(dbShard2,1)})
+	// BUG .... this should not affect dbShard at all!
+	dbShard2 := Shard(202)
+	db.Do(Command{
+		Action: ActionInsert,
+		Record: &DataRecord{
+			Shard: dbShard2,
+			TTL:   50,
+		},
+	})
+	fmt.Printf("shard %d, id1: %s\n\n", dbShard2, db.Checksum(dbShard2))
+	db.Do(Command{Action: ActionRemove, Record: db.Get(dbShard2, 1)})
 	//*/
 
 	db.Do(Command{Action: ActionRemove, Record: db.Get(dbShard, 1)})
