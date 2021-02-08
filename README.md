@@ -67,3 +67,7 @@ The database is cut into shards.  Each shard is associated with a writer. The wr
 ![trashcompact.png](trashcompact.png)
 
 With trash compacting, the longer full stream of events should hash to the same value as the trash-compacted version.  Due to queueing theory, the size of the database will grow indefinitely unless the Insert rate is the same as the Remove rate.  If content is not leased (ie: written with some kind of expiration date, or deprecation on inactivity), then it may stay in the database too long.
+
+![crdt.png](crdt.png)
+
+The main synchronization is in getting eventual consistency between peers.  All pointers must point _back_ to existing data, so being up to date is consistent.  The running checksum per shard can be combined with signatures from the owner of the shard; to know that the owner signs off on the contents of the shard.
