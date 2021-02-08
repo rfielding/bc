@@ -71,7 +71,6 @@ type Db struct {
 	KeyPair *KeyPair
 	State   map[Shard]*State
 	Lock    sync.Mutex
-	Curve   elliptic.Curve
 }
 
 func zeroPoint(curve elliptic.Curve) *Point {
@@ -89,35 +88,34 @@ func NewKeyPair(curve elliptic.Curve) (*KeyPair, error) {
 	}
 	return &KeyPair{
 		Secret: s,
-		Point: Point{
+		Public: Point{
 			X: x,
 			Y: y,
 		},
 	}, nil
 }
 
-var ZeroPoint = zeroPoint(elliptic.P521())
+var Curve = elliptic.P521()
+var ZeroPoint = zeroPoint(Curve)
 
 func NewDB(shard Shard) (*Db, error) {
-	curve := elliptic.P521()
-	kp, err := NewKeyPair(curve)
+	kp, err := NewKeyPair(Curve)
 	if err != nil {
 		return nil, err
 	}
 	return &Db{
 		State:   make(map[Shard]*State),
 		KeyPair: kp,
-		Curve:   curve,
 	}, nil
 }
 
-func (db *Db) sum(state *State, h []byte, neg bool) {
-	x1, y1 := db.Curve.ScalarBaseMult(h)
+func (state *State) sum(h []byte, neg bool) {
+	x1, y1 := Curve.ScalarBaseMult(h)
 	if neg {
 		y1 = new(big.Int).Neg(y1)
 	}
 	ck := state.Checksum
-	x2, y2 := db.Curve.Add(ck.X, ck.Y, x1, y1)
+	x2, y2 := Curve.Add(ck.X, ck.Y, x1, y1)
 	ck.X = x2
 	ck.Y = y2
 }
@@ -144,7 +142,7 @@ func (db *Db) Insert(v *DataRecord) (*DataRecord, error) {
 	}
 	j := AsJson(v)
 	h := sha256.New().Sum([]byte(j))
-	db.sum(st, h, false)
+	st.sum(h, false)
 	st.Data[id] = v
 	return v, nil
 }
@@ -179,7 +177,7 @@ func (db *Db) Remove(vToRemove *DataRecord) (*DataRecord, error) {
 			shard, id,
 		)
 	}
-	db.sum(st, h, true)
+	st.sum(h, true)
 	delete(st.Data, id)
 	return v, nil
 }
@@ -221,7 +219,7 @@ func (db *Db) Get(shard Shard, id Id) *DataRecord {
 
 type KeyPair struct {
 	Secret []byte
-	Point  Point
+	Public Point
 }
 
 func main() {
@@ -252,7 +250,7 @@ func main() {
 	db.Do(Command{Action: ActionRemove, Record: db.Get(dbShard, 2)})
 	fmt.Printf("id1: %s\n\n", db.Checksum(dbShard))
 
-	/*
+	///*
 	// BUG .... this should not affect dbShard at all!	
 		dbShard2 := Shard(202)
 		db.Do(Command{
@@ -263,7 +261,8 @@ func main() {
 			},
 		})
 		fmt.Printf("shard %d, id1: %s\n\n", dbShard2, db.Checksum(dbShard2))
-	*/
+		db.Do(Command{Action:ActionRemove,Record: db.Get(dbShard2,1)})
+	//*/
 
 	db.Do(Command{Action: ActionRemove, Record: db.Get(dbShard, 1)})
 	fmt.Printf("empty checksum: %s\n\n", db.Checksum(dbShard))
