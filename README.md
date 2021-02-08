@@ -63,3 +63,7 @@ remove event1
 ![shards.png](shards.png)
 
 The database is cut into shards.  Each shard is associated with a writer. The writer has the private key for signing off on contents of a shard.  The public key is obtainable for all shards.  The hashes being signed are over which objects are currently _in_ the database; not a signature over the event stream itself.
+
+![trashcompact.png](trashcompact.png)
+
+With trash compacting, the longer full stream of events should hash to the same value as the trash-compacted version.  Due to queueing theory, the size of the database will grow indefinitely unless the Insert rate is the same as the Remove rate.  If content is not leased (ie: written with some kind of expiration date, or deprecation on inactivity), then it may stay in the database too long.
