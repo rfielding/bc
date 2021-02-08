@@ -57,3 +57,9 @@ insert event1
 insert event2
 remove event1
 ```
+
+# Shards
+
+![shards.png](shards.png)
+
+The database is cut into shards.  Each shard is associated with a writer. The writer has the private key for signing off on contents of a shard.  The public key is obtainable for all shards.  The hashes being signed are over which objects are currently _in_ the database; not a signature over the event stream itself.
