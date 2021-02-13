@@ -16,6 +16,7 @@ type ErrTransaction error
 
 var (
 	ErrGenesis    = fmt.Errorf("genesis")
+	ErrBelowZero  = fmt.Errorf("belowzero")
 	ErrSigFail    = fmt.Errorf("signaturefail")
 	ErrNotFound   = fmt.Errorf("notfound")
 	ErrWait       = fmt.Errorf("wait")
@@ -110,7 +111,8 @@ type Transaction struct {
 
 
 // Give each participant a change to sign the flow
-func (t *Transaction) Sign(k *ecdsa.PrivateKey, i int) error {
+func (t *Transaction) Sign(k *ecdsa.PrivateKey) error {
+	i := 0
 	// Translate into ecdsa package format
 	h := sha256.New().Sum(t.Flow.Serialize())
 	r, s, err := ecdsa.Sign(rand.Reader, k, h)
@@ -184,13 +186,12 @@ func NewKeyPair() (*ecdsa.PrivateKey, error) {
 
 // The database stores a bunch of records
 type Db interface {
-	// Inject this to be able to sign new transactions for this account
-	OwnAccount(k *ecdsa.PrivateKey)
+	AsBank(k PublicKey)
 
 	// Insert, and sign it if we can
 	InsertTransaction(rcpt Receipt, txn Transaction) (Receipt, error)
 
-	Sign(txn *Transaction) Transaction
+	Sign(k *ecdsa.PrivateKey, txn *Transaction) Transaction
 
 	//	// Find a spot in the chain
 	//	Find(h HashPointer) (Receipt, error)
@@ -202,7 +203,7 @@ type Db interface {
 }
 
 type DbTest struct {
-	Ownership      map[PublicKeyString]*ecdsa.PrivateKey
+	IsBank         map[PublicKeyString]bool
 	Accounts       map[PublicKeyString]*Account
 	Receipts       map[HashPointer]*Receipt
 	GenesisReceipt Receipt
@@ -211,7 +212,7 @@ type DbTest struct {
 func NewDBTest() *DbTest {
 	g := Receipt{}
 	return &DbTest{
-		Ownership:      make(map[PublicKeyString]*ecdsa.PrivateKey),
+		IsBank:         make(map[PublicKeyString]bool),
 		Accounts:       make(map[PublicKeyString]*Account),
 		Receipts:       make(map[HashPointer]*Receipt),
 		GenesisReceipt: g,
@@ -222,28 +223,19 @@ func (db *DbTest) Genesis() Receipt {
 	return db.GenesisReceipt
 }
 
-func (db *DbTest) OwnAccount(k *ecdsa.PrivateKey) {
-	pub := PublicKey{X: k.PublicKey.X, Y: k.PublicKey.Y}
-	pks := NewPublicKeyString(pub)
-	db.Ownership[pks] = k
+func (db *DbTest) AsBank(k PublicKey) {
+	pks := NewPublicKeyString(k)
+	db.IsBank[pks] = true	
 }
 
-func (db *DbTest) Sign(t *Transaction) *Transaction {
-	t.Signatures = make([]*Signature, len(t.Flow.Inputs))
-	for i := 0; i < len(t.Signatures); i++ {
-		pks := NewPublicKeyString(t.Flow.Inputs[i].PublicKey)
-		k := db.Ownership[pks]
-		if k == nil {
-			panic("key does not exist for signing")
-		}
-		t.Sign(k, i)
-	}
+func (db *DbTest) Sign(k *ecdsa.PrivateKey, t *Transaction) *Transaction {
+	// one signer for now
+	t.Signatures = make([]*Signature, 1)
+	t.Sign(k)
 	return t
 }
-func (db *DbTest) SignTransaction(t *Transaction, i int) error {
-	pks := NewPublicKeyString(t.Flow.Inputs[i].PublicKey)
-	k := db.Ownership[pks]
-	return t.Sign(k, i)
+func (db *DbTest) SignTransaction(t *Transaction, k *ecdsa.PrivateKey) error {
+	return t.Sign(k)
 }
 
 func Pub(k *ecdsa.PrivateKey) PublicKey {
@@ -254,6 +246,12 @@ func Pub(k *ecdsa.PrivateKey) PublicKey {
 func (db *DbTest) InsertTransaction(prevr Receipt, txn Transaction) (Receipt, error) {
 	// if no error, then this is meaningful
 	r := Receipt{}
+
+	// bad signature
+	result := txn.Verify()
+	if result == false {
+		return r, ErrSigFail
+	}
 
 	// Flows add to zero
 	total := int64(0)
@@ -278,19 +276,19 @@ func (db *DbTest) InsertTransaction(prevr Receipt, txn Transaction) (Receipt, er
 			a.PublicKey = txn.Flow.Inputs[i].PublicKey
 			a.Nonce = 0
 		}
+		if a.Amount - txn.Flow.Inputs[i].Amount < 0 && db.IsBank[pks]==false {
+			return r, ErrBelowZero
+		}
 		if a.Nonce < txn.Flow.Inputs[i].Nonce {
 			return r, ErrWait
 		}
+		// need a better solution to bank negative balance
 		if a.Nonce > txn.Flow.Inputs[i].Nonce {
 			return r, ErrReplay
 		}
 		db.Accounts[pks] = a
 	}
 
-	result := txn.Verify()
-	if result == false {
-		return r, ErrSigFail
-	}
 
 	for i := 0; i < len(txn.Flow.Inputs); i++ {
 		pks := NewPublicKeyString(txn.Flow.Inputs[i].PublicKey)
@@ -339,23 +337,21 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	db.OwnAccount(alicePriv)
 
 	bobPriv, err := NewKeyPair()
 	if err != nil {
 		panic(err)
 	}
-	db.OwnAccount(bobPriv)
 
 	treasuryPriv, err := NewKeyPair()
 	if err != nil {
 		panic(err)
 	}
-	db.OwnAccount(treasuryPriv)
+	db.AsBank(Pub(treasuryPriv))
 
 	receipt, err := db.InsertTransaction(
 		db.Genesis(),
-		*db.Sign(&Transaction{
+		*db.Sign(treasuryPriv,&Transaction{
 			Flow: Flow{
 				Inputs: []Input{
 					Input{
@@ -380,7 +376,7 @@ func main() {
 
 	receipt, err = db.InsertTransaction(
 		receipt,
-		*db.Sign(&Transaction{
+		*db.Sign(treasuryPriv,&Transaction{
 			Flow: Flow{
 				Inputs: []Input{
 					Input{
@@ -405,7 +401,7 @@ func main() {
 
 	receipt, err = db.InsertTransaction(
 		receipt,
-		*db.Sign(&Transaction{
+		*db.Sign(alicePriv,&Transaction{
 			Flow: Flow{
 				Inputs: []Input{
 					Input{
