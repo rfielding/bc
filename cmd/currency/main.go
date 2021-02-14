@@ -103,18 +103,11 @@ func main() {
 	db.PopTransaction()
 	db.RePush(0)
 	log.Printf("dbt: %s", currency.AsJson(dbt.Accounts))
-	/*
-		for db.PopTransaction() {
-			rcpt := db.This()
-			log.Printf(
-				"%s[%d] peekNext: %s -> %s",
-				rcpt.HashPointer(),
-				rcpt.Hashed.ChainLength,
-				db.PeekNext()[0].HashPointer(),
-				rcpt.Hashed.Previous,
-			)
-			log.Printf("dbt: %s", currency.AsJson(dbt.Accounts))
-		}
-	*/
 
+	for db.PopTransaction() {
+	}
+	for len(db.PeekNext()) > 0 {
+		db.RePush(0)
+	}
+	log.Printf("dbt: %s", currency.AsJson(dbt.Accounts))
 }
