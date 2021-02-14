@@ -1,5 +1,15 @@
 # bc
 
+## cmd/currency/main.go
+
+This is an attempt to recreate an Ethereum-like currency with these features:
+
+- Use accounts with nonces, like Ethereum to represent transactions
+- This is a stateful representation, which means that when a chain of receipts comes in, that you need to explicitly navigate to the spot to add them.  This way, the account balances are correct, to facilitate the correctness checks.  (still working on this).
+- Currently have an in-memory implementation.  May move to MongoDB to handle large amounts of data that need indexing.
+
+## main.go
+
 This is a POC for how you would garbage-collect a block-chained structure.
 Normally, it's the EVENT stream that is blockchained, rather than the DATABASE
 that contains all the data.  A few problems:
