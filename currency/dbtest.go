@@ -127,10 +127,4 @@ func (db *DbTest) PushTransaction(prevr Receipt, txn Transaction) (Receipt, erro
 	return r, nil
 }
 
-func (db *DbTest) Find(h HashPointer) (Receipt, error) {
-	r := db.Receipts[h]
-	if r == nil {
-		return Receipt{}, ErrNotFound
-	}
-	return *r, nil
-}
+var _ Db = &DbTest{}

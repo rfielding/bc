@@ -188,9 +188,7 @@ func NewKeyPair() (*ecdsa.PrivateKey, error) {
 type Db interface {
 	AsBank(k PublicKey)
 	PushTransaction(rcpt Receipt, txn Transaction) (Receipt, error)
-	Sign(k *ecdsa.PrivateKey, txn *Transaction, i int) Transaction
-	Find(h HashPointer) (Receipt, bool)
-	FindLongest() (Receipt, bool)
+	Sign(k *ecdsa.PrivateKey, txn *Transaction, i int) *Transaction
 	Genesis() Receipt
 }
 
