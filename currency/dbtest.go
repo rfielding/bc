@@ -54,7 +54,7 @@ func (db *DbTest) SignTransaction(t *Transaction, k *ecdsa.PrivateKey, i int) er
 	return t.Sign(k, i)
 }
 
-func (db *DbTest) verifyTransaction(txn Transaction) ErrTransaction {
+func (db *DbTest) verifyTransaction(txn Transaction, isBeforeApply bool) ErrTransaction {
 	// basic malformedness
 	if len(txn.Flows) != len(txn.Signoffs) {
 		return ErrMalformed
@@ -80,6 +80,11 @@ func (db *DbTest) verifyTransaction(txn Transaction) ErrTransaction {
 		if txn.Flows[i].Amount > 0 {
 			continue
 		}
+		nonceDiff := Nonce(0)
+		if !isBeforeApply {
+			nonceDiff = Nonce(1)
+		}
+
 		// look up the account
 		pks := NewPublicKeyString(txn.Flows[i].PublicKey)
 		a := db.Accounts[pks]
@@ -94,11 +99,11 @@ func (db *DbTest) verifyTransaction(txn Transaction) ErrTransaction {
 			return ErrBelowZero
 		}
 		// this can't be applied.  maybe later though.
-		if a.Nonce < txn.Signoffs[i].Nonce {
+		if a.Nonce < txn.Signoffs[i].Nonce+nonceDiff {
 			return ErrWait
 		}
 		// this is a replay according to our branch
-		if a.Nonce > txn.Signoffs[i].Nonce {
+		if a.Nonce > txn.Signoffs[i].Nonce+nonceDiff {
 			return ErrReplay
 		}
 	}
@@ -134,6 +139,11 @@ func (db *DbTest) PopTransaction() bool {
 
 	db.Current = r
 
+	err := db.verifyTransaction(r.Hashed.Transaction, false)
+	if err != nil {
+		panic(err)
+	}
+
 	return true
 }
 
@@ -160,7 +170,7 @@ func (db *DbTest) PushTransaction(txn Transaction) (Receipt, ErrTransaction) {
 	// if no error, then this is meaningful
 	r := Receipt{}
 
-	err := db.verifyTransaction(txn)
+	err := db.verifyTransaction(txn, true)
 	if err != nil {
 		return r, err
 	}
@@ -216,6 +226,12 @@ func (db *DbTest) PushTransaction(txn Transaction) (Receipt, ErrTransaction) {
 		db.Receipts[prevr.This].Next = append(db.Receipts[prevr.This].Next, r.This)
 	}
 	db.Current = &r
+
+	err = db.verifyTransaction(txn, false)
+	if err != nil {
+		panic(err)
+	}
+
 	return r, nil
 }
 
@@ -240,6 +256,11 @@ func (db *DbTest) RePush(i int) (Receipt, ErrTransaction) {
 	}
 
 	db.Current = db.Receipts[redos[i].HashPointer()]
+
+	err := db.verifyTransaction(txn, false)
+	if err != nil {
+		panic(err)
+	}
 
 	return *db.Current, nil
 }
