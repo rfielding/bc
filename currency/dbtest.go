@@ -106,12 +106,12 @@ func (db *DbTest) verifyTransaction(txn Transaction) ErrTransaction {
 	return nil
 }
 
-func (db *DbTest) PopTransaction() (Receipt, ErrTransaction) {
+func (db *DbTest) PopTransaction() bool {
 	// If this crashes, then the database is corrupted
 	db.Mutex.Lock()
 	defer db.Mutex.Unlock()
 	if db.Current == db.GenesisReceipt {
-		return db.Genesis(), ErrGenesis
+		return false
 	}
 
 	undo := db.Current
@@ -120,7 +120,7 @@ func (db *DbTest) PopTransaction() (Receipt, ErrTransaction) {
 	// we need to unapply the transaction in order to go back
 	r, ok := db.Receipts[db.Current.Hashed.Previous]
 	if !ok {
-		return *r, ErrNotFound
+		return false
 	}
 
 	// the receipt is found.  now, undo it.
@@ -134,12 +134,16 @@ func (db *DbTest) PopTransaction() (Receipt, ErrTransaction) {
 
 	db.Current = r
 
-	return *r, nil
+	return true
 }
 
 func (db *DbTest) PeekNext() []Receipt {
 	db.Mutex.Lock()
 	defer db.Mutex.Unlock()
+	return db.peekNext()
+}
+
+func (db *DbTest) peekNext() []Receipt {
 	peeks := make([]Receipt, 0)
 	for i := 0; i < len(db.Current.Next); i++ {
 		k := db.Current.Next[i]
@@ -149,9 +153,10 @@ func (db *DbTest) PeekNext() []Receipt {
 }
 
 // receipt, pleaseWait, error
-func (db *DbTest) PushTransaction(prevr Receipt, txn Transaction) (Receipt, ErrTransaction) {
+func (db *DbTest) PushTransaction(txn Transaction) (Receipt, ErrTransaction) {
 	db.Mutex.Lock()
 	defer db.Mutex.Unlock()
+	prevr := *db.Current
 	// if no error, then this is meaningful
 	r := Receipt{}
 
@@ -212,6 +217,35 @@ func (db *DbTest) PushTransaction(prevr Receipt, txn Transaction) (Receipt, ErrT
 	}
 	db.Current = &r
 	return r, nil
+}
+
+func (db *DbTest) RePush(i int) (Receipt, ErrTransaction) {
+	// If this crashes, then the database is corrupted
+	db.Mutex.Lock()
+	defer db.Mutex.Unlock()
+
+	redos := db.peekNext()
+	if len(redos) < i {
+		return Receipt{}, ErrNotFound
+	}
+	txn := redos[i].Hashed.Transaction
+
+	// the receipt is found.  now, undo it.
+	for i := 0; i < len(txn.Flows); i++ {
+		pks := NewPublicKeyString(txn.Flows[i].PublicKey)
+		db.Accounts[pks].Amount += txn.Flows[i].Amount
+		if txn.Flows[i].Amount < 0 {
+			db.Accounts[pks].Nonce++
+		}
+	}
+
+	db.Current = db.Receipts[redos[i].HashPointer()]
+
+	return *db.Current, nil
+}
+
+func (db *DbTest) This() Receipt {
+	return *db.Current
 }
 
 func (db *DbTest) CanPopTransaction() bool {

@@ -7,12 +7,13 @@ import (
 
 // The database stores a bunch of records
 type Db interface {
-	PushTransaction(rcpt Receipt, txn Transaction) (Receipt, ErrTransaction)
+	PushTransaction(txn Transaction) (Receipt, ErrTransaction)
+	RePush(i int) (Receipt, ErrTransaction)
 	PeekNext() []Receipt
-	PopTransaction() (Receipt, ErrTransaction)
+	PopTransaction() bool
 	CanPopTransaction() bool
 	Genesis() Receipt
-
+	This() Receipt
 	AsBank(k PublicKey) // hack to deal with accounts with negative balances, like treasuries
 	Sign(k *ecdsa.PrivateKey, txn *Transaction, i int) *Transaction
 }

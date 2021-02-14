@@ -7,7 +7,10 @@ import (
 )
 
 func main() {
-	db := currency.NewDBTest()
+	var db currency.Db
+	var dbt *currency.DbTest
+	dbt = currency.NewDBTest()
+	db = dbt
 
 	alicePriv, err := currency.NewKeyPair()
 	if err != nil {
@@ -43,7 +46,7 @@ func main() {
 	db.Sign(treasuryPriv, mintAlice, 0)
 	db.Sign(alicePriv, mintAlice, 1)
 
-	receipt, err := db.PushTransaction(db.Genesis(), *mintAlice)
+	receipt, err := db.PushTransaction(*mintAlice)
 
 	if err != nil {
 		log.Printf("treasury -> alice: 100")
@@ -52,7 +55,6 @@ func main() {
 	log.Printf("%s", currency.AsJson(receipt))
 
 	receipt, err = db.PushTransaction(
-		receipt,
 		*db.Sign(treasuryPriv, &currency.Transaction{
 			Signoffs: []currency.Signoff{{Nonce: 1}, {}},
 			Flows: currency.Flows{
@@ -68,7 +70,6 @@ func main() {
 	log.Printf("%s", currency.AsJson(receipt))
 
 	receipt, err = db.PushTransaction(
-		receipt,
 		*db.Sign(alicePriv, &currency.Transaction{
 			Signoffs: []currency.Signoff{{Nonce: 0}, {}},
 			Flows: currency.Flows{
@@ -84,26 +85,36 @@ func main() {
 	log.Printf("%s", currency.AsJson(receipt))
 
 	receipt, err = db.PushTransaction(
-		receipt,
 		*db.Sign(alicePriv, &currency.Transaction{
-			Signoffs: []currency.Signoff{{Nonce: 1}, {}},
+			Signoffs: []currency.Signoff{{Nonce: 1}, {}, {}},
 			Flows: currency.Flows{
-				currency.Flow{Amount: -5, PublicKey: currency.Pub(alicePriv)},
+				currency.Flow{Amount: -10, PublicKey: currency.Pub(alicePriv)},
+				currency.Flow{Amount: 5, PublicKey: currency.Pub(bobPriv)},
 				currency.Flow{Amount: 5, PublicKey: currency.Pub(charlesPriv)},
 			},
 		}, 0),
 	)
 	if err != nil {
-		log.Printf("alice -> charles: 5")
+		log.Printf("alice -> bob,charles: 5")
 		panic(err)
 	}
 	log.Printf("%s", currency.AsJson(receipt))
 
-	for {
-		if !db.CanPopTransaction() {
-			break
+	db.PopTransaction()
+	db.RePush(0)
+	log.Printf("dbt: %s", currency.AsJson(dbt.Accounts))
+	/*
+		for db.PopTransaction() {
+			rcpt := db.This()
+			log.Printf(
+				"%s[%d] peekNext: %s -> %s",
+				rcpt.HashPointer(),
+				rcpt.Hashed.ChainLength,
+				db.PeekNext()[0].HashPointer(),
+				rcpt.Hashed.Previous,
+			)
+			log.Printf("dbt: %s", currency.AsJson(dbt.Accounts))
 		}
-		db.PopTransaction()
-		log.Printf("%s[%d] peekNext: %s -> %s", db.Current.HashPointer(), db.Current.Hashed.ChainLength, db.PeekNext()[0].HashPointer(), db.Current.Hashed.Previous)
-	}
+	*/
+
 }
