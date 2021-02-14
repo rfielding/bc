@@ -8,7 +8,9 @@ import (
 // The database stores a bunch of records
 type Db interface {
 	PushTransaction(rcpt Receipt, txn Transaction) (Receipt, ErrTransaction)
+	PeekNext() []Receipt
 	PopTransaction() (Receipt, ErrTransaction)
+	CanPopTransaction() bool
 	Genesis() Receipt
 
 	AsBank(k PublicKey) // hack to deal with accounts with negative balances, like treasuries

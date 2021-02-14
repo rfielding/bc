@@ -2,9 +2,11 @@ package currency
 
 import (
 	"crypto/ecdsa"
+	"sync"
 )
 
 type DbTest struct {
+	Mutex          sync.Mutex
 	IsBank         map[PublicKeyString]bool
 	Accounts       map[PublicKeyString]*Account
 	Receipts       map[HashPointer]*Receipt
@@ -14,7 +16,7 @@ type DbTest struct {
 
 func NewDBTest() *DbTest {
 	g := &Receipt{}
-	return &DbTest{
+	db := &DbTest{
 		// hack to deal with banks that have negative balances
 		IsBank:   make(map[PublicKeyString]bool),
 		Receipts: make(map[HashPointer]*Receipt),
@@ -24,6 +26,8 @@ func NewDBTest() *DbTest {
 		GenesisReceipt: g,
 		Current:        g,
 	}
+	db.Receipts[g.This] = g
+	return db
 }
 
 func (db *DbTest) Genesis() Receipt {
@@ -31,6 +35,8 @@ func (db *DbTest) Genesis() Receipt {
 }
 
 func (db *DbTest) AsBank(k PublicKey) {
+	db.Mutex.Lock()
+	defer db.Mutex.Unlock()
 	pks := NewPublicKeyString(k)
 	db.IsBank[pks] = true
 }
@@ -43,43 +49,30 @@ func (db *DbTest) Sign(k *ecdsa.PrivateKey, t *Transaction, i int) *Transaction 
 	t.Sign(k, i)
 	return t
 }
+
 func (db *DbTest) SignTransaction(t *Transaction, k *ecdsa.PrivateKey, i int) error {
 	return t.Sign(k, i)
 }
 
-func (db *DbTest) PopTransaction() (Receipt, ErrTransaction) {
-	if db.Current == db.GenesisReceipt {
-		return db.Genesis(), ErrGenesis
-	}
-	r, ok := db.Receipts[db.Current.Hashed.Previous]
-	if !ok {
-		return *r, ErrNotFound
-	}
-	return *r, nil
-}
-
-// receipt, pleaseWait, error
-func (db *DbTest) PushTransaction(prevr Receipt, txn Transaction) (Receipt, ErrTransaction) {
-	// if no error, then this is meaningful
-	r := Receipt{}
-
+func (db *DbTest) verifyTransaction(txn Transaction) ErrTransaction {
+	// basic malformedness
 	if len(txn.Flows) != len(txn.Signoffs) {
-		return r, ErrMalformed
+		return ErrMalformed
 	}
 
 	// bad signature
 	result := txn.Verify()
 	if result == false {
-		return r, ErrSigFail
+		return ErrSigFail
 	}
 
-	// Signed add to zero
+	// Flows add to zero
 	total := int64(0)
 	for i := 0; i < len(txn.Flows); i++ {
 		total -= txn.Flows[i].Amount
 	}
 	if total != 0 {
-		return r, ErrNonZeroSum
+		return ErrNonZeroSum
 	}
 
 	// Inputs must match nonce on account
@@ -96,15 +89,95 @@ func (db *DbTest) PushTransaction(prevr Receipt, txn Transaction) (Receipt, ErrT
 			a.PublicKey = txn.Flows[i].PublicKey
 			a.Nonce = 0
 		}
+		// account below zero
 		if a.Amount+txn.Flows[i].Amount < 0 && db.IsBank[pks] == false {
-			return r, ErrBelowZero
+			return ErrBelowZero
 		}
+		// this can't be applied.  maybe later though.
 		if a.Nonce < txn.Signoffs[i].Nonce {
-			return r, ErrWait
+			return ErrWait
 		}
-		// need a better solution to bank negative balance
+		// this is a replay according to our branch
 		if a.Nonce > txn.Signoffs[i].Nonce {
-			return r, ErrReplay
+			return ErrReplay
+		}
+	}
+
+	return nil
+}
+
+func (db *DbTest) PopTransaction() (Receipt, ErrTransaction) {
+	// If this crashes, then the database is corrupted
+	db.Mutex.Lock()
+	defer db.Mutex.Unlock()
+	if db.Current == db.GenesisReceipt {
+		return db.Genesis(), ErrGenesis
+	}
+
+	undo := db.Current
+	txn := undo.Hashed.Transaction
+
+	// we need to unapply the transaction in order to go back
+	r, ok := db.Receipts[db.Current.Hashed.Previous]
+	if !ok {
+		return *r, ErrNotFound
+	}
+
+	// the receipt is found.  now, undo it.
+	for i := 0; i < len(txn.Flows); i++ {
+		pks := NewPublicKeyString(txn.Flows[i].PublicKey)
+		db.Accounts[pks].Amount -= txn.Flows[i].Amount
+		if txn.Flows[i].Amount < 0 {
+			db.Accounts[pks].Nonce--
+		}
+	}
+
+	db.Current = r
+
+	return *r, nil
+}
+
+func (db *DbTest) PeekNext() []Receipt {
+	db.Mutex.Lock()
+	defer db.Mutex.Unlock()
+	peeks := make([]Receipt, 0)
+	for i := 0; i < len(db.Current.Next); i++ {
+		k := db.Current.Next[i]
+		peeks = append(peeks, *db.Receipts[k])
+	}
+	return peeks
+}
+
+// receipt, pleaseWait, error
+func (db *DbTest) PushTransaction(prevr Receipt, txn Transaction) (Receipt, ErrTransaction) {
+	db.Mutex.Lock()
+	defer db.Mutex.Unlock()
+	// if no error, then this is meaningful
+	r := Receipt{}
+
+	err := db.verifyTransaction(txn)
+	if err != nil {
+		return r, err
+	}
+
+	// everything is verified
+
+	// If we don't make it to the end of this
+	// will corrupt the database!!!!
+
+	// Inputs must match nonce on account
+	for i := 0; i < len(txn.Flows); i++ {
+		if txn.Flows[i].Amount > 0 {
+			continue
+		}
+		// look up the account
+		pks := NewPublicKeyString(txn.Flows[i].PublicKey)
+		a := db.Accounts[pks]
+		// if account not found, then add it as empty
+		if a == nil {
+			a = &Account{}
+			a.PublicKey = txn.Flows[i].PublicKey
+			a.Nonce = 0
 		}
 		db.Accounts[pks] = a
 	}
@@ -139,6 +212,10 @@ func (db *DbTest) PushTransaction(prevr Receipt, txn Transaction) (Receipt, ErrT
 	}
 	db.Current = &r
 	return r, nil
+}
+
+func (db *DbTest) CanPopTransaction() bool {
+	return (db.Current == db.GenesisReceipt)
 }
 
 var _ Db = &DbTest{}

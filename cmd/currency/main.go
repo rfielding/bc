@@ -98,4 +98,12 @@ func main() {
 		panic(err)
 	}
 	log.Printf("%s", currency.AsJson(receipt))
+
+	for {
+		if !db.CanPopTransaction() {
+			break
+		}
+		db.PopTransaction()
+		log.Printf("%s[%d] peekNext: %s -> %s", db.Current.HashPointer(), db.Current.Hashed.ChainLength, db.PeekNext()[0].HashPointer(), db.Current.Hashed.Previous)
+	}
 }
