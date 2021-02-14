@@ -1,6 +1,8 @@
-package main
+package currency
 
-import "crypto/ecdsa"
+import (
+	"crypto/ecdsa"
+)
 
 type DbTest struct {
 	IsBank         map[PublicKeyString]bool

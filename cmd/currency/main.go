@@ -2,38 +2,40 @@ package main
 
 import (
 	"log"
+
+	"github.com/rfielding/bc/currency"
 )
 
 func main() {
-	db := NewDBTest()
+	db := currency.NewDBTest()
 
-	alicePriv, err := NewKeyPair()
+	alicePriv, err := currency.NewKeyPair()
 	if err != nil {
 		panic(err)
 	}
 
-	bobPriv, err := NewKeyPair()
+	bobPriv, err := currency.NewKeyPair()
 	if err != nil {
 		panic(err)
 	}
 
-	charlesPriv, err := NewKeyPair()
+	charlesPriv, err := currency.NewKeyPair()
 	if err != nil {
 		panic(err)
 	}
 
-	treasuryPriv, err := NewKeyPair()
+	treasuryPriv, err := currency.NewKeyPair()
 	if err != nil {
 		panic(err)
 	}
 	// hack to deal with negative balances for now
-	db.AsBank(Pub(treasuryPriv))
+	db.AsBank(currency.Pub(treasuryPriv))
 
-	mintAlice := &Transaction{
-		Signoffs: []Signoff{{Nonce: 0}, {Nonce: 0}},
-		Flows: Flows{
-			Flow{Amount: -100, PublicKey: Pub(treasuryPriv)},
-			Flow{Amount: 100, PublicKey: Pub(alicePriv)},
+	mintAlice := &currency.Transaction{
+		Signoffs: []currency.Signoff{{Nonce: 0}, {Nonce: 0}},
+		Flows: currency.Flows{
+			currency.Flow{Amount: -100, PublicKey: currency.Pub(treasuryPriv)},
+			currency.Flow{Amount: 100, PublicKey: currency.Pub(alicePriv)},
 		},
 	}
 
@@ -47,15 +49,15 @@ func main() {
 		log.Printf("treasury -> alice: 100")
 		panic(err)
 	}
-	log.Printf("%s", AsJson(receipt))
+	log.Printf("%s", currency.AsJson(receipt))
 
 	receipt, err = db.PushTransaction(
 		receipt,
-		*db.Sign(treasuryPriv, &Transaction{
-			Signoffs: []Signoff{{Nonce: 1}, {}},
-			Flows: Flows{
-				Flow{Amount: -20, PublicKey: Pub(treasuryPriv)},
-				Flow{Amount: 20, PublicKey: Pub(bobPriv)},
+		*db.Sign(treasuryPriv, &currency.Transaction{
+			Signoffs: []currency.Signoff{{Nonce: 1}, {}},
+			Flows: currency.Flows{
+				currency.Flow{Amount: -20, PublicKey: currency.Pub(treasuryPriv)},
+				currency.Flow{Amount: 20, PublicKey: currency.Pub(bobPriv)},
 			},
 		}, 0),
 	)
@@ -63,15 +65,15 @@ func main() {
 		log.Printf("treasury -> bob: 20")
 		panic(err)
 	}
-	log.Printf("%s", AsJson(receipt))
+	log.Printf("%s", currency.AsJson(receipt))
 
 	receipt, err = db.PushTransaction(
 		receipt,
-		*db.Sign(alicePriv, &Transaction{
-			Signoffs: []Signoff{{Nonce: 0}, {}},
-			Flows: Flows{
-				Flow{Amount: -5, PublicKey: Pub(alicePriv)},
-				Flow{Amount: 5, PublicKey: Pub(bobPriv)},
+		*db.Sign(alicePriv, &currency.Transaction{
+			Signoffs: []currency.Signoff{{Nonce: 0}, {}},
+			Flows: currency.Flows{
+				currency.Flow{Amount: -5, PublicKey: currency.Pub(alicePriv)},
+				currency.Flow{Amount: 5, PublicKey: currency.Pub(bobPriv)},
 			},
 		}, 0),
 	)
@@ -79,15 +81,15 @@ func main() {
 		log.Printf("alice -> bob: 5")
 		panic(err)
 	}
-	log.Printf("%s", AsJson(receipt))
+	log.Printf("%s", currency.AsJson(receipt))
 
 	receipt, err = db.PushTransaction(
 		receipt,
-		*db.Sign(alicePriv, &Transaction{
-			Signoffs: []Signoff{{Nonce: 1}, {}},
-			Flows: Flows{
-				Flow{Amount: -5, PublicKey: Pub(alicePriv)},
-				Flow{Amount: 5, PublicKey: Pub(charlesPriv)},
+		*db.Sign(alicePriv, &currency.Transaction{
+			Signoffs: []currency.Signoff{{Nonce: 1}, {}},
+			Flows: currency.Flows{
+				currency.Flow{Amount: -5, PublicKey: currency.Pub(alicePriv)},
+				currency.Flow{Amount: 5, PublicKey: currency.Pub(charlesPriv)},
 			},
 		}, 0),
 	)
@@ -95,5 +97,5 @@ func main() {
 		log.Printf("alice -> charles: 5")
 		panic(err)
 	}
-	log.Printf("%s", AsJson(receipt))
+	log.Printf("%s", currency.AsJson(receipt))
 }
