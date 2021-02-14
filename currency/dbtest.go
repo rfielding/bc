@@ -295,9 +295,61 @@ func (db *DbTest) Highest() []Receipt {
 	return db.HighestReceipts
 }
 
+type istack []int
+
+func (s *istack) Push(v int) {
+	*s = append(*s, v)
+}
+
+func (s *istack) Peek() int {
+	return (*s)[len(*s)-1]
+}
+
+func (s *istack) Pop() int {
+	res := (*s)[len(*s)-1]
+	*s = (*s)[:len(*s)-1]
+	return res
+}
+
+func (s *istack) CanPop() bool {
+	return len(*s) > 0
+}
+
+/// XXX not yet
 func (db *DbTest) Goto(rcpt Receipt) bool {
-	panic("not implemented")
-	// dept-first-search from our current location, probably a leaf until we match rcpt
+	// Look for it from where we are
+	s := istack{}
+	p := db.PeekNext()
+	for i := 0; i < len(p); i++ {
+		s.Push(i)
+	}
+	for s.CanPop() {
+		// Leave because we found it
+		if db.This().This == rcpt.This {
+			return true
+		}
+		// Try current child
+		i := s.Pop()
+
+		// Go down or up
+		if i == -1 {
+			db.PopTransaction()
+		} else {
+			db.RePush(i)
+		}
+
+		// Go on here, and try all children first, and go back up after that
+		db.RePush(s.Pop())
+		if rcpt.Hashed.ChainLength > db.This().Hashed.ChainLength {
+			p := db.PeekNext()
+			for i := 0; i < len(p); i++ {
+				s.Push(i)
+			}
+		}
+		s.Push(-1)
+	}
+
+	// XXX it's on another branch
 	return false
 }
 

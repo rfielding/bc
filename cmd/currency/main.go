@@ -110,4 +110,10 @@ func main() {
 		db.RePush(0)
 	}
 	log.Printf("dbt: %s", currency.AsJson(dbt))
+
+	db.Goto(db.Genesis())
+	his := db.Highest()
+	for i := 0; i < len(his); i++ {
+		db.Goto(his[i])
+	}
 }
