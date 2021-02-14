@@ -47,7 +47,7 @@ func (db *DbTest) SignTransaction(t *Transaction, k *ecdsa.PrivateKey, i int) er
 	return t.Sign(k, i)
 }
 
-func (db *DbTest) PopTransaction() (Receipt, error) {
+func (db *DbTest) PopTransaction() (Receipt, ErrTransaction) {
 	if db.Current == db.GenesisReceipt {
 		return db.Genesis(), ErrGenesis
 	}
@@ -59,7 +59,7 @@ func (db *DbTest) PopTransaction() (Receipt, error) {
 }
 
 // receipt, pleaseWait, error
-func (db *DbTest) PushTransaction(prevr Receipt, txn Transaction) (Receipt, error) {
+func (db *DbTest) PushTransaction(prevr Receipt, txn Transaction) (Receipt, ErrTransaction) {
 	// if no error, then this is meaningful
 	r := Receipt{}
 

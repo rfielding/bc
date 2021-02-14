@@ -12,19 +12,6 @@ import (
 	"math/big"
 )
 
-type ErrTransaction error
-
-var (
-	ErrMalformed  = fmt.Errorf("malformed")
-	ErrGenesis    = fmt.Errorf("genesis")
-	ErrBelowZero  = fmt.Errorf("belowzero")
-	ErrSigFail    = fmt.Errorf("signaturefail")
-	ErrNotFound   = fmt.Errorf("notfound")
-	ErrWait       = fmt.Errorf("wait")
-	ErrNonZeroSum = fmt.Errorf("nonZeroSum")
-	ErrReplay     = fmt.Errorf("replay")
-)
-
 func AsJson(v interface{}) string {
 	s, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
@@ -182,15 +169,6 @@ var Curve = elliptic.P521()
 
 func NewKeyPair() (*ecdsa.PrivateKey, error) {
 	return ecdsa.GenerateKey(Curve, rand.Reader)
-}
-
-// The database stores a bunch of records
-type Db interface {
-	AsBank(k PublicKey) // hack to deal with accounts with negative balances, like treasuries
-	PushTransaction(rcpt Receipt, txn Transaction) (Receipt, error)
-	PopTransaction() (Receipt, error)
-	Sign(k *ecdsa.PrivateKey, txn *Transaction, i int) *Transaction
-	Genesis() Receipt
 }
 
 func Pub(k *ecdsa.PrivateKey) PublicKey {
