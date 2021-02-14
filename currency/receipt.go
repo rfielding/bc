@@ -186,8 +186,9 @@ func NewKeyPair() (*ecdsa.PrivateKey, error) {
 
 // The database stores a bunch of records
 type Db interface {
-	AsBank(k PublicKey)
+	AsBank(k PublicKey) // hack to deal with accounts with negative balances, like treasuries
 	PushTransaction(rcpt Receipt, txn Transaction) (Receipt, error)
+	PopTransaction() (Receipt, error)
 	Sign(k *ecdsa.PrivateKey, txn *Transaction, i int) *Transaction
 	Genesis() Receipt
 }
