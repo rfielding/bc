@@ -63,7 +63,7 @@ var Curve = elliptic.P521()
 var zPoint = zeroPoint(Curve)
 
 func AsJson(v interface{}) string {
-	s, err := json.MarshalIndent(v, "", "  ")
+	s, err := json.Marshal(v)
 	if err != nil {
 		panic(fmt.Sprintf("cannot marshal data: %v", err))
 	}
@@ -260,7 +260,7 @@ func main() {
 	fmt.Printf("id1+id2: %s\n\n", db.Checksum(dbShard))
 
 	db.Do(Command{
-		Action: ActionRemove, 
+		Action: ActionRemove,
 		Record: db.Get(dbShard, dbShard_2.Id),
 	})
 	fmt.Printf("id1: %s\n\n", db.Checksum(dbShard))
@@ -282,7 +282,7 @@ func main() {
 
 	// empty out the other shard
 	db.Do(Command{
-		Action: ActionRemove, 
+		Action: ActionRemove,
 		Record: db.Get(dbShard2, dbShard_1.Id),
 	})
 	fmt.Printf("shard %d, id1: %s\n\n", dbShard2, db.Checksum(dbShard2))
