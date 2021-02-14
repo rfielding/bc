@@ -76,32 +76,21 @@ type Account struct {
 // Signatures are points
 type Signature Point
 
-// This is what is critical for Input keys to sign
-type Signed struct {
-	Inputs  []Input  `json:"inputs"`
-	Outputs []Output `json:"outputs"`
+type Flow struct {
+	Amount    int64     `json:"amount"`
+	PublicKey PublicKey `json:"publickey"`
 }
 
+type Flows []Flow
+
 // This is exactly what gets signed.
-func (f *Signed) Serialize() []byte {
+func (f Flows) Serialize() []byte {
 	j, err := json.Marshal(f)
 	if err != nil {
 		log.Printf("cannot serialize flow!")
 		panic(err)
 	}
 	return j
-}
-
-// Inputs must be signed, because funds come out of it.
-type Input struct {
-	Amount    int64     `json:"amount"`
-	PublicKey PublicKey `json:"publickey"`
-}
-
-// Outputs need not be signed, because they receive funds.
-type Output struct {
-	Amount    int64     `json:"amount"`
-	PublicKey PublicKey `json:"publickey"`
 }
 
 type Signoff struct {
@@ -112,14 +101,14 @@ type Signoff struct {
 // every entity that is providing an input MUST sign,
 // and include a nonce on when it's valid
 type Transaction struct {
-	Signed   Signed    `json:"signed"`
+	Flows    Flows     `json:"flows"`
 	Signoffs []Signoff `json:"signoffs"`
 }
 
 func (t *Transaction) flowHash(i int) []byte {
 	// Translate into ecdsa package format
 	hash := sha256.New()
-	hash.Write(t.Signed.Serialize())
+	hash.Write(t.Flows.Serialize())
 	hash.Write([]byte(fmt.Sprintf("%d", t.Signoffs[i].Nonce)))
 	return hash.Sum(nil)
 }
@@ -136,17 +125,21 @@ func (t *Transaction) Sign(k *ecdsa.PrivateKey, i int) error {
 }
 
 func (t *Transaction) Verify() bool {
-	if len(t.Signoffs) != len(t.Signed.Inputs) {
+	if len(t.Signoffs) != len(t.Flows) {
 		return false
 	}
 	for i := 0; i < len(t.Signoffs); i++ {
+		// Only negative flows need to be signed
+		if t.Flows[i].Amount > 0 {
+			continue
+		}
 		h := t.flowHash(i)
 		r := t.Signoffs[i].Signature.X
 		s := t.Signoffs[i].Signature.Y
 		k := &ecdsa.PublicKey{
 			Curve: Curve,
-			X:     t.Signed.Inputs[i].PublicKey.X,
-			Y:     t.Signed.Inputs[i].PublicKey.Y,
+			X:     t.Flows[i].PublicKey.X,
+			Y:     t.Flows[i].PublicKey.Y,
 		}
 		v := ecdsa.Verify(k, h, r, s)
 		if v == false {
@@ -202,16 +195,10 @@ func NewKeyPair() (*ecdsa.PrivateKey, error) {
 // The database stores a bunch of records
 type Db interface {
 	AsBank(k PublicKey)
-
 	PushTransaction(rcpt Receipt, txn Transaction) (Receipt, error)
-
 	Sign(k *ecdsa.PrivateKey, txn *Transaction, i int) Transaction
-
 	Find(h HashPointer) (Receipt, bool)
-
-	// Find longest chain known
 	FindLongest() (Receipt, bool)
-
 	Genesis() Receipt
 }
 
@@ -243,7 +230,7 @@ func (db *DbTest) AsBank(k PublicKey) {
 
 func (db *DbTest) Sign(k *ecdsa.PrivateKey, t *Transaction, i int) *Transaction {
 	// one signer for now
-	if len(t.Signed.Inputs) != len(t.Signoffs) {
+	if len(t.Flows) != len(t.Signoffs) {
 		return nil
 	}
 	t.Sign(k, i)
@@ -262,7 +249,7 @@ func (db *DbTest) PushTransaction(prevr Receipt, txn Transaction) (Receipt, erro
 	// if no error, then this is meaningful
 	r := Receipt{}
 
-	if len(txn.Signed.Inputs) != len(txn.Signoffs) {
+	if len(txn.Flows) != len(txn.Signoffs) {
 		return r, ErrMalformed
 	}
 
@@ -274,28 +261,28 @@ func (db *DbTest) PushTransaction(prevr Receipt, txn Transaction) (Receipt, erro
 
 	// Signed add to zero
 	total := int64(0)
-	for i := 0; i < len(txn.Signed.Inputs); i++ {
-		total -= txn.Signed.Inputs[i].Amount
-	}
-	for i := 0; i < len(txn.Signed.Outputs); i++ {
-		total += txn.Signed.Outputs[i].Amount
+	for i := 0; i < len(txn.Flows); i++ {
+		total -= txn.Flows[i].Amount
 	}
 	if total != 0 {
 		return r, ErrNonZeroSum
 	}
 
 	// Inputs must match nonce on account
-	for i := 0; i < len(txn.Signed.Inputs); i++ {
+	for i := 0; i < len(txn.Flows); i++ {
+		if txn.Flows[i].Amount > 0 {
+			continue
+		}
 		// look up the account
-		pks := NewPublicKeyString(txn.Signed.Inputs[i].PublicKey)
+		pks := NewPublicKeyString(txn.Flows[i].PublicKey)
 		a := db.Accounts[pks]
 		// if account not found, then add it as empty
 		if a == nil {
 			a = &Account{}
-			a.PublicKey = txn.Signed.Inputs[i].PublicKey
+			a.PublicKey = txn.Flows[i].PublicKey
 			a.Nonce = 0
 		}
-		if a.Amount-txn.Signed.Inputs[i].Amount < 0 && db.IsBank[pks] == false {
+		if a.Amount+txn.Flows[i].Amount < 0 && db.IsBank[pks] == false {
 			return r, ErrBelowZero
 		}
 		if a.Nonce < txn.Signoffs[i].Nonce {
@@ -308,20 +295,19 @@ func (db *DbTest) PushTransaction(prevr Receipt, txn Transaction) (Receipt, erro
 		db.Accounts[pks] = a
 	}
 
-	for i := 0; i < len(txn.Signed.Inputs); i++ {
-		pks := NewPublicKeyString(txn.Signed.Inputs[i].PublicKey)
-		db.Accounts[pks].Nonce++
-		db.Accounts[pks].Amount -= txn.Signed.Inputs[i].Amount
-	}
-	for i := 0; i < len(txn.Signed.Outputs); i++ {
-		pks := NewPublicKeyString(txn.Signed.Outputs[i].PublicKey)
+	for i := 0; i < len(txn.Flows); i++ {
+		pks := NewPublicKeyString(txn.Flows[i].PublicKey)
 		a := db.Accounts[pks]
 		if a == nil {
 			db.Accounts[pks] = &Account{
-				PublicKey: txn.Signed.Outputs[i].PublicKey,
+				PublicKey: txn.Flows[i].PublicKey,
 			}
 		}
-		db.Accounts[pks].Amount += txn.Signed.Outputs[i].Amount
+		// Outflows decrement the nonce
+		if txn.Flows[i].Amount < 0 {
+			db.Accounts[pks].Nonce++
+		}
+		db.Accounts[pks].Amount += txn.Flows[i].Amount
 	}
 
 	// write out the receipt data
@@ -361,6 +347,11 @@ func main() {
 		panic(err)
 	}
 
+	charlesPriv, err := NewKeyPair()
+	if err != nil {
+		panic(err)
+	}
+
 	treasuryPriv, err := NewKeyPair()
 	if err != nil {
 		panic(err)
@@ -369,14 +360,16 @@ func main() {
 	db.AsBank(Pub(treasuryPriv))
 
 	mintAlice := &Transaction{
-		Signoffs: []Signoff{{Nonce: 0}},
-		Signed: Signed{
-			Inputs:  []Input{{Amount: 100, PublicKey: Pub(treasuryPriv)}},
-			Outputs: []Output{{Amount: 100, PublicKey: Pub(alicePriv)}},
+		Signoffs: []Signoff{{Nonce: 0}, {Nonce: 0}},
+		Flows: Flows{
+			Flow{Amount: -100, PublicKey: Pub(treasuryPriv)},
+			Flow{Amount: 100, PublicKey: Pub(alicePriv)},
 		},
 	}
 
+	// test signing even for receiver
 	db.Sign(treasuryPriv, mintAlice, 0)
+	db.Sign(alicePriv, mintAlice, 1)
 
 	receipt, err := db.PushTransaction(db.Genesis(), *mintAlice)
 
@@ -389,10 +382,10 @@ func main() {
 	receipt, err = db.PushTransaction(
 		receipt,
 		*db.Sign(treasuryPriv, &Transaction{
-			Signoffs: []Signoff{{Nonce: 1}},
-			Signed: Signed{
-				Inputs:  []Input{{Amount: 20, PublicKey: Pub(treasuryPriv)}},
-				Outputs: []Output{{Amount: 20, PublicKey: Pub(bobPriv)}},
+			Signoffs: []Signoff{{Nonce: 1}, {}},
+			Flows: Flows{
+				Flow{Amount: -20, PublicKey: Pub(treasuryPriv)},
+				Flow{Amount: 20, PublicKey: Pub(bobPriv)},
 			},
 		}, 0),
 	)
@@ -405,10 +398,10 @@ func main() {
 	receipt, err = db.PushTransaction(
 		receipt,
 		*db.Sign(alicePriv, &Transaction{
-			Signoffs: []Signoff{{Nonce: 0}},
-			Signed: Signed{
-				Inputs:  []Input{{Amount: 5, PublicKey: Pub(alicePriv)}},
-				Outputs: []Output{{Amount: 5, PublicKey: Pub(bobPriv)}},
+			Signoffs: []Signoff{{Nonce: 0}, {}},
+			Flows: Flows{
+				Flow{Amount: -5, PublicKey: Pub(alicePriv)},
+				Flow{Amount: 5, PublicKey: Pub(bobPriv)},
 			},
 		}, 0),
 	)
@@ -417,4 +410,21 @@ func main() {
 		panic(err)
 	}
 	log.Printf("%s", AsJson(receipt))
+
+	receipt, err = db.PushTransaction(
+		receipt,
+		*db.Sign(alicePriv, &Transaction{
+			Signoffs: []Signoff{{Nonce: 1}, {}},
+			Flows: Flows{
+				Flow{Amount: -5, PublicKey: Pub(alicePriv)},
+				Flow{Amount: 5, PublicKey: Pub(charlesPriv)},
+			},
+		}, 0),
+	)
+	if err != nil {
+		log.Printf("alice -> charles: 5")
+		panic(err)
+	}
+	log.Printf("%s", AsJson(receipt))
+
 }
