@@ -46,15 +46,15 @@ func main() {
 	db.Sign(treasuryPriv, mintAlice, 0)
 	db.Sign(alicePriv, mintAlice, 1)
 
-	receipt, err := db.PushTransaction(*mintAlice)
+	err = db.PushTransaction(*mintAlice)
 
 	if err != nil {
 		log.Printf("treasury -> alice: 100")
 		panic(err)
 	}
-	log.Printf("%s", currency.AsJson(receipt))
+	log.Printf("%s", currency.AsJson(db.This()))
 
-	receipt, err = db.PushTransaction(
+	err = db.PushTransaction(
 		*db.Sign(treasuryPriv, &currency.Transaction{
 			Signoffs: []currency.Signoff{{Nonce: 1}, {}},
 			Flows: currency.Flows{
@@ -67,9 +67,9 @@ func main() {
 		log.Printf("treasury -> bob: 20")
 		panic(err)
 	}
-	log.Printf("%s", currency.AsJson(receipt))
+	log.Printf("%s", currency.AsJson(db.This()))
 
-	receipt, err = db.PushTransaction(
+	err = db.PushTransaction(
 		*db.Sign(alicePriv, &currency.Transaction{
 			Signoffs: []currency.Signoff{{Nonce: 0}, {}},
 			Flows: currency.Flows{
@@ -82,9 +82,9 @@ func main() {
 		log.Printf("alice -> bob: 5")
 		panic(err)
 	}
-	log.Printf("%s", currency.AsJson(receipt))
+	log.Printf("%s", currency.AsJson(db.This()))
 
-	receipt, err = db.PushTransaction(
+	err = db.PushTransaction(
 		*db.Sign(alicePriv, &currency.Transaction{
 			Signoffs: []currency.Signoff{{Nonce: 1}, {}, {}},
 			Flows: currency.Flows{
@@ -98,7 +98,7 @@ func main() {
 		log.Printf("alice -> bob,charles: 5")
 		panic(err)
 	}
-	log.Printf("%s", currency.AsJson(receipt))
+	log.Printf("%s", currency.AsJson(db.This()))
 
 	db.PopTransaction()
 	db.RePush(0)

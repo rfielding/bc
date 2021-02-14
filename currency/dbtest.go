@@ -171,7 +171,7 @@ func (db *DbTest) peekNext() []Receipt {
 }
 
 // receipt, pleaseWait, error
-func (db *DbTest) PushTransaction(txn Transaction) (Receipt, ErrTransaction) {
+func (db *DbTest) PushTransaction(txn Transaction) ErrTransaction {
 	db.Mutex.Lock()
 	defer db.Mutex.Unlock()
 	prevr := *db.Current
@@ -180,7 +180,7 @@ func (db *DbTest) PushTransaction(txn Transaction) (Receipt, ErrTransaction) {
 
 	err := db.verifyTransaction(txn, true)
 	if err != nil {
-		return r, err
+		return err
 	}
 
 	// everything is verified
@@ -240,17 +240,17 @@ func (db *DbTest) PushTransaction(txn Transaction) (Receipt, ErrTransaction) {
 		panic(err)
 	}
 
-	return r, nil
+	return nil
 }
 
-func (db *DbTest) RePush(i int) (Receipt, ErrTransaction) {
+func (db *DbTest) RePush(i int) ErrTransaction {
 	// If this crashes, then the database is corrupted
 	db.Mutex.Lock()
 	defer db.Mutex.Unlock()
 
 	redos := db.peekNext()
 	if len(redos) < i {
-		return Receipt{}, ErrNotFound
+		return ErrNotFound
 	}
 	txn := redos[i].Hashed.Transaction
 
@@ -270,7 +270,7 @@ func (db *DbTest) RePush(i int) (Receipt, ErrTransaction) {
 		panic(err)
 	}
 
-	return *db.Current, nil
+	return nil
 }
 
 func (db *DbTest) This() Receipt {

@@ -12,9 +12,9 @@ import (
 type Db interface {
 	// Try to insert transactions into the chain
 	// Pushing onto This() receipt.
-	PushTransaction(txn Transaction) (Receipt, ErrTransaction)
+	PushTransaction(txn Transaction) ErrTransaction
 	// Move around the chain
-	RePush(i int) (Receipt, ErrTransaction)
+	RePush(i int) ErrTransaction
 	PeekNext() []Receipt
 	PopTransaction() bool
 	CanPopTransaction() bool
