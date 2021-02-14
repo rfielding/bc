@@ -83,7 +83,6 @@ type Flow struct {
 
 type Flows []Flow
 
-// This is exactly what gets signed.
 func (f Flows) Serialize() []byte {
 	j, err := json.Marshal(f)
 	if err != nil {
@@ -98,8 +97,6 @@ type Signoff struct {
 	Signature *Signature `json:"signature"`
 }
 
-// every entity that is providing an input MUST sign,
-// and include a nonce on when it's valid
 type Transaction struct {
 	Flows    Flows     `json:"flows"`
 	Signoffs []Signoff `json:"signoffs"`
@@ -113,7 +110,6 @@ func (t *Transaction) flowHash(i int) []byte {
 	return hash.Sum(nil)
 }
 
-// Give each participant a chance to sign the flow
 func (t *Transaction) Sign(k *ecdsa.PrivateKey, i int) error {
 	h := t.flowHash(i)
 	r, s, err := ecdsa.Sign(rand.Reader, k, h)
@@ -157,15 +153,12 @@ type Hashed struct {
 	Previous    HashPointer `json:"previous"`
 }
 
-// A transaction gets accepted, and resulting data is injected
-// []Next is mutable!
 type Receipt struct {
 	Hashed Hashed        `json:"hashed"`
 	This   HashPointer   `json:"this"`
 	Next   []HashPointer `json:"-"`
 }
 
-// Serialize into a byte array
 func (r *Receipt) Serialize() []byte {
 	j, err := json.Marshal(r)
 	if err != nil {
@@ -175,7 +168,6 @@ func (r *Receipt) Serialize() []byte {
 	return j
 }
 
-// Hashes
 func (r *Receipt) HashPointer() HashPointer {
 	j, err := json.Marshal(r.Hashed)
 	if err != nil {
@@ -202,136 +194,8 @@ type Db interface {
 	Genesis() Receipt
 }
 
-type DbTest struct {
-	IsBank         map[PublicKeyString]bool
-	Accounts       map[PublicKeyString]*Account
-	Receipts       map[HashPointer]*Receipt
-	GenesisReceipt Receipt
-}
-
-func NewDBTest() *DbTest {
-	g := Receipt{}
-	return &DbTest{
-		IsBank:         make(map[PublicKeyString]bool),
-		Accounts:       make(map[PublicKeyString]*Account),
-		Receipts:       make(map[HashPointer]*Receipt),
-		GenesisReceipt: g,
-	}
-}
-
-func (db *DbTest) Genesis() Receipt {
-	return db.GenesisReceipt
-}
-
-func (db *DbTest) AsBank(k PublicKey) {
-	pks := NewPublicKeyString(k)
-	db.IsBank[pks] = true
-}
-
-func (db *DbTest) Sign(k *ecdsa.PrivateKey, t *Transaction, i int) *Transaction {
-	// one signer for now
-	if len(t.Flows) != len(t.Signoffs) {
-		return nil
-	}
-	t.Sign(k, i)
-	return t
-}
-func (db *DbTest) SignTransaction(t *Transaction, k *ecdsa.PrivateKey, i int) error {
-	return t.Sign(k, i)
-}
-
 func Pub(k *ecdsa.PrivateKey) PublicKey {
 	return PublicKey{X: k.PublicKey.X, Y: k.PublicKey.Y}
-}
-
-// receipt, pleaseWait, error
-func (db *DbTest) PushTransaction(prevr Receipt, txn Transaction) (Receipt, error) {
-	// if no error, then this is meaningful
-	r := Receipt{}
-
-	if len(txn.Flows) != len(txn.Signoffs) {
-		return r, ErrMalformed
-	}
-
-	// bad signature
-	result := txn.Verify()
-	if result == false {
-		return r, ErrSigFail
-	}
-
-	// Signed add to zero
-	total := int64(0)
-	for i := 0; i < len(txn.Flows); i++ {
-		total -= txn.Flows[i].Amount
-	}
-	if total != 0 {
-		return r, ErrNonZeroSum
-	}
-
-	// Inputs must match nonce on account
-	for i := 0; i < len(txn.Flows); i++ {
-		if txn.Flows[i].Amount > 0 {
-			continue
-		}
-		// look up the account
-		pks := NewPublicKeyString(txn.Flows[i].PublicKey)
-		a := db.Accounts[pks]
-		// if account not found, then add it as empty
-		if a == nil {
-			a = &Account{}
-			a.PublicKey = txn.Flows[i].PublicKey
-			a.Nonce = 0
-		}
-		if a.Amount+txn.Flows[i].Amount < 0 && db.IsBank[pks] == false {
-			return r, ErrBelowZero
-		}
-		if a.Nonce < txn.Signoffs[i].Nonce {
-			return r, ErrWait
-		}
-		// need a better solution to bank negative balance
-		if a.Nonce > txn.Signoffs[i].Nonce {
-			return r, ErrReplay
-		}
-		db.Accounts[pks] = a
-	}
-
-	for i := 0; i < len(txn.Flows); i++ {
-		pks := NewPublicKeyString(txn.Flows[i].PublicKey)
-		a := db.Accounts[pks]
-		if a == nil {
-			db.Accounts[pks] = &Account{
-				PublicKey: txn.Flows[i].PublicKey,
-			}
-		}
-		// Outflows decrement the nonce
-		if txn.Flows[i].Amount < 0 {
-			db.Accounts[pks].Nonce++
-		}
-		db.Accounts[pks].Amount += txn.Flows[i].Amount
-	}
-
-	// write out the receipt data
-	r.Hashed.Transaction = txn
-	r.Hashed.ChainLength = prevr.Hashed.ChainLength + 1
-	r.Hashed.Previous = prevr.This
-	r.This = r.HashPointer()
-
-	// store it
-	db.Receipts[r.This] = &r
-
-	// modify our previous to point to us
-	if db.Receipts[prevr.This] != nil {
-		db.Receipts[prevr.This].Next = append(db.Receipts[prevr.This].Next, r.This)
-	}
-	return r, nil
-}
-
-func (db *DbTest) Find(h HashPointer) (Receipt, error) {
-	r := db.Receipts[h]
-	if r == nil {
-		return Receipt{}, ErrNotFound
-	}
-	return *r, nil
 }
 
 func main() {
@@ -426,5 +290,4 @@ func main() {
 		panic(err)
 	}
 	log.Printf("%s", AsJson(receipt))
-
 }
