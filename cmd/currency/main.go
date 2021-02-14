@@ -109,5 +109,5 @@ func main() {
 	for len(db.PeekNext()) > 0 {
 		db.RePush(0)
 	}
-	log.Printf("dbt: %s", currency.AsJson(dbt.Accounts))
+	log.Printf("dbt: %s", currency.AsJson(dbt))
 }

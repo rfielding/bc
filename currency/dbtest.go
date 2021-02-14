@@ -6,12 +6,14 @@ import (
 )
 
 type DbTest struct {
-	Mutex          sync.Mutex
-	IsBank         map[PublicKeyString]bool
-	Accounts       map[PublicKeyString]*Account
-	Receipts       map[HashPointer]*Receipt
-	GenesisReceipt *Receipt
-	Current        *Receipt
+	Mutex              sync.Mutex
+	IsBank             map[PublicKeyString]bool
+	Accounts           map[PublicKeyString]*Account
+	Receipts           map[HashPointer]*Receipt
+	GenesisReceipt     *Receipt
+	Current            *Receipt
+	HighestChainLength ChainLength
+	HighestReceipts    []Receipt
 }
 
 func NewDBTest() *DbTest {
@@ -235,6 +237,14 @@ func (db *DbTest) PushTransaction(txn Transaction) ErrTransaction {
 	}
 	db.Current = &r
 
+	// Keep track of highest chain length in use
+	if r.Hashed.ChainLength == db.HighestChainLength {
+		db.HighestReceipts = append(db.HighestReceipts, r)
+	} else if r.Hashed.ChainLength > db.HighestChainLength {
+		db.HighestChainLength = r.Hashed.ChainLength
+		db.HighestReceipts = []Receipt{r}
+	}
+
 	err = db.verifyTransaction(txn, false)
 	if err != nil {
 		panic(err)
@@ -279,6 +289,16 @@ func (db *DbTest) This() Receipt {
 
 func (db *DbTest) CanPopTransaction() bool {
 	return (db.Current == db.GenesisReceipt)
+}
+
+func (db *DbTest) Highest() []Receipt {
+	return db.HighestReceipts
+}
+
+func (db *DbTest) Goto(rcpt Receipt) bool {
+	panic("not implemented")
+	// dept-first-search from our current location, probably a leaf until we match rcpt
+	return false
 }
 
 var _ Db = &DbTest{}
