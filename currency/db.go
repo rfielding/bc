@@ -32,12 +32,13 @@ type Db interface {
 type ErrTransaction error
 
 var (
-	ErrMalformed  = fmt.Errorf("malformed")
-	ErrGenesis    = fmt.Errorf("genesis")
-	ErrBelowZero  = fmt.Errorf("belowzero")
-	ErrSigFail    = fmt.Errorf("signaturefail")
-	ErrNotFound   = fmt.Errorf("notfound")
-	ErrWait       = fmt.Errorf("wait")
-	ErrNonZeroSum = fmt.Errorf("nonZeroSum")
-	ErrReplay     = fmt.Errorf("replay")
+	ErrMalformed       = fmt.Errorf("malformed")
+	ErrGenesis         = fmt.Errorf("genesis")
+	ErrBelowZero       = fmt.Errorf("belowzero")
+	ErrSigFail         = fmt.Errorf("signaturefail")
+	ErrNotFound        = fmt.Errorf("notfound")
+	ErrWait            = fmt.Errorf("wait")
+	ErrNonZeroSum      = fmt.Errorf("nonZeroSum")
+	ErrReplay          = fmt.Errorf("replay")
+	ErrTotalNonZeroSum = fmt.Errorf("totalnonzerosum")
 )

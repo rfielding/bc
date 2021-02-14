@@ -108,6 +108,14 @@ func (db *DbTest) verifyTransaction(txn Transaction, isBeforeApply bool) ErrTran
 		}
 	}
 
+	total = int64(0)
+	for _, av := range db.Accounts {
+		total += av.Amount
+	}
+	if total != 0 {
+		return ErrTotalNonZeroSum
+	}
+
 	return nil
 }
 
