@@ -2,6 +2,7 @@ package currency
 
 import (
 	"crypto/ecdsa"
+	"fmt"
 	"sync"
 )
 
@@ -37,8 +38,6 @@ func (db *DbTest) Genesis() Receipt {
 }
 
 func (db *DbTest) AsBank(k PublicKey) {
-	db.Mutex.Lock()
-	defer db.Mutex.Unlock()
 	pks := NewPublicKeyString(k)
 	db.IsBank[pks] = true
 }
@@ -123,8 +122,6 @@ func (db *DbTest) verifyTransaction(txn Transaction, isBeforeApply bool) ErrTran
 
 func (db *DbTest) PopTransaction() bool {
 	// If this crashes, then the database is corrupted
-	db.Mutex.Lock()
-	defer db.Mutex.Unlock()
 	if db.Current == db.GenesisReceipt {
 		return false
 	}
@@ -158,8 +155,6 @@ func (db *DbTest) PopTransaction() bool {
 }
 
 func (db *DbTest) PeekNext() []Receipt {
-	db.Mutex.Lock()
-	defer db.Mutex.Unlock()
 	return db.peekNext()
 }
 
@@ -174,8 +169,6 @@ func (db *DbTest) peekNext() []Receipt {
 
 // receipt, pleaseWait, error
 func (db *DbTest) PushTransaction(txn Transaction) ErrTransaction {
-	db.Mutex.Lock()
-	defer db.Mutex.Unlock()
 	prevr := *db.Current
 	// if no error, then this is meaningful
 	r := Receipt{}
@@ -255,9 +248,6 @@ func (db *DbTest) PushTransaction(txn Transaction) ErrTransaction {
 
 func (db *DbTest) RePush(i int) ErrTransaction {
 	// If this crashes, then the database is corrupted
-	db.Mutex.Lock()
-	defer db.Mutex.Unlock()
-
 	redos := db.peekNext()
 	if len(redos) < i {
 		return ErrNotFound
@@ -288,7 +278,7 @@ func (db *DbTest) This() Receipt {
 }
 
 func (db *DbTest) CanPopTransaction() bool {
-	return (db.Current == db.GenesisReceipt)
+	return db.This().Hashed.ChainLength > 0
 }
 
 func (db *DbTest) Highest() []Receipt {
@@ -315,41 +305,66 @@ func (s *istack) CanPop() bool {
 	return len(*s) > 0
 }
 
-/// XXX not yet
 func (db *DbTest) Goto(rcpt Receipt) bool {
-	// Look for it from where we are
-	s := istack{}
-	p := db.PeekNext()
-	for i := 0; i < len(p); i++ {
-		s.Push(i)
+	// Walk them back to a receipt that they have in common
+	// and remember the path for there when we do it
+	// RePush the stack to get to there
+
+	for db.This().Hashed.ChainLength > rcpt.Hashed.ChainLength && db.CanPopTransaction() {
+		db.PopTransaction()
 	}
-	for s.CanPop() {
-		// Leave because we found it
-		if db.This().This == rcpt.This {
-			return true
-		}
-		// Try current child
-		i := s.Pop()
-
-		// Go down or up
-		if i == -1 {
-			db.PopTransaction()
-		} else {
-			db.RePush(i)
-		}
-
-		// Go on here, and try all children first, and go back up after that
-		db.RePush(s.Pop())
-		if rcpt.Hashed.ChainLength > db.This().Hashed.ChainLength {
-			p := db.PeekNext()
-			for i := 0; i < len(p); i++ {
-				s.Push(i)
+	if db.This().This == rcpt.This {
+		return true
+	}
+	there := rcpt
+	st := istack{}
+	for db.This().Hashed.ChainLength < there.Hashed.ChainLength {
+		nexts := db.Receipts[there.Hashed.Previous].Next
+		idx := 0
+		for i := 0; i < len(nexts); i++ {
+			if nexts[i] == there.This {
+				idx = i
+				break
 			}
 		}
-		s.Push(-1)
+		if db.Receipts[there.Hashed.Previous].Next[idx] != there.This {
+			panic(fmt.Sprintf("we are not where we expected: %s vs %s",
+				db.Receipts[there.Hashed.Previous].Next[idx],
+				there.This,
+			))
+		}
+		st.Push(idx)
+		there = *db.Receipts[there.Hashed.Previous]
+	}
+	if db.This().This == rcpt.This {
+		return true
+	}
+	if db.This().Hashed.ChainLength != there.Hashed.ChainLength {
+		panic(fmt.Sprintf("we expect to be at same chain length now! %d vs %d",
+			db.This().Hashed.ChainLength,
+			there.Hashed.ChainLength,
+		))
+	}
+	for db.This().This != there.This && db.CanPopTransaction() {
+		nexts := db.Receipts[there.Hashed.Previous].Next
+		idx := 0
+		for i := 0; i < len(nexts); i++ {
+			if nexts[i] == there.This {
+				idx = i
+				break
+			}
+		}
+		st.Push(idx)
+		there = *db.Receipts[there.Hashed.Previous]
+		db.PopTransaction()
+	}
+	for st.CanPop() {
+		db.RePush(st.Pop())
 	}
 
-	// XXX it's on another branch
+	if db.This().This == there.This {
+		return true
+	}
 	return false
 }
 
