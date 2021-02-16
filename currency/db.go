@@ -16,10 +16,10 @@ type Db interface {
 
 	// Move around the chain for things already inserted
 	PushReceipt(i int) ErrTransaction
-	PeekNext() []Receipt
+	PeekNextReceipts() []Receipt
 	PopReceipt() bool
 	CanPopReceipt() bool
-	Goto(Receipt) bool
+	GotoReceipt(Receipt) bool
 
 	// Locations.
 	Genesis() Receipt

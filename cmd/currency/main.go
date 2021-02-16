@@ -106,16 +106,16 @@ func main() {
 
 	for db.PopReceipt() {
 	}
-	for len(db.PeekNext()) > 0 {
+	for len(db.PeekNextReceipts()) > 0 {
 		db.PushReceipt(0)
 	}
 	log.Printf("dbt: %s", currency.AsJson(dbt))
 
 	//db.PopTransaction()
-	db.Goto(db.Genesis())
+	db.GotoReceipt(db.Genesis())
 	his := db.Highest()
 	for i := 0; i < len(his); i++ {
-		db.Goto(his[i])
+		db.GotoReceipt(his[i])
 	}
 
 	log.Printf("dbt: %s", currency.AsJson(dbt))

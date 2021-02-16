@@ -154,7 +154,7 @@ func (db *DbTest) PopReceipt() bool {
 	return true
 }
 
-func (db *DbTest) PeekNext() []Receipt {
+func (db *DbTest) PeekNextReceipts() []Receipt {
 	return db.peekNext()
 }
 
@@ -305,7 +305,7 @@ func (s *istack) CanPop() bool {
 	return len(*s) > 0
 }
 
-func (db *DbTest) Goto(rcpt Receipt) bool {
+func (db *DbTest) GotoReceipt(rcpt Receipt) bool {
 	// Walk them back to a receipt that they have in common
 	// and remember the path for there when we do it
 	// RePush the stack to get to there
