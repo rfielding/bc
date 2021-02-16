@@ -15,10 +15,10 @@ type Db interface {
 	PushTransaction(txn Transaction) ErrTransaction
 
 	// Move around the chain for things already inserted
-	RePush(i int) ErrTransaction
+	PushReceipt(i int) ErrTransaction
 	PeekNext() []Receipt
-	PopTransaction() bool
-	CanPopTransaction() bool
+	PopReceipt() bool
+	CanPopReceipt() bool
 	Goto(Receipt) bool
 
 	// Locations.
@@ -48,13 +48,3 @@ var (
 	ErrReplay          = fmt.Errorf("replay")
 	ErrTotalNonZeroSum = fmt.Errorf("totalnonzerosum")
 )
-
-/*
-  Appending a receipt into the chain:
-  - every record has a chain length
-  - the current head that we are on has a chain length
-
-  So, walk back current chain, and proposed chain to have an equal chain length.
-  Walk the two back in unison until they have an common receipt.
-  Sort branches to put longest branch in position 0
-*/

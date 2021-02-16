@@ -120,9 +120,9 @@ func (db *DbTest) verifyTransaction(txn Transaction, isBeforeApply bool) ErrTran
 	return nil
 }
 
-func (db *DbTest) PopTransaction() bool {
+func (db *DbTest) PopReceipt() bool {
 	// If this crashes, then the database is corrupted
-	if db.Current == db.GenesisReceipt {
+	if db.This().Hashed.ChainLength == 0 {
 		return false
 	}
 
@@ -246,7 +246,7 @@ func (db *DbTest) PushTransaction(txn Transaction) ErrTransaction {
 	return nil
 }
 
-func (db *DbTest) RePush(i int) ErrTransaction {
+func (db *DbTest) PushReceipt(i int) ErrTransaction {
 	// If this crashes, then the database is corrupted
 	redos := db.peekNext()
 	if len(redos) < i {
@@ -277,7 +277,7 @@ func (db *DbTest) This() Receipt {
 	return *db.Current
 }
 
-func (db *DbTest) CanPopTransaction() bool {
+func (db *DbTest) CanPopReceipt() bool {
 	return db.This().Hashed.ChainLength > 0
 }
 
@@ -310,8 +310,8 @@ func (db *DbTest) Goto(rcpt Receipt) bool {
 	// and remember the path for there when we do it
 	// RePush the stack to get to there
 
-	for db.This().Hashed.ChainLength > rcpt.Hashed.ChainLength && db.CanPopTransaction() {
-		db.PopTransaction()
+	for db.This().Hashed.ChainLength > rcpt.Hashed.ChainLength && db.CanPopReceipt() {
+		db.PopReceipt()
 	}
 	if db.This().This == rcpt.This {
 		return true
@@ -345,7 +345,7 @@ func (db *DbTest) Goto(rcpt Receipt) bool {
 			there.Hashed.ChainLength,
 		))
 	}
-	for db.This().This != there.This && db.CanPopTransaction() {
+	for db.This().This != there.This && db.CanPopReceipt() {
 		nexts := db.Receipts[there.Hashed.Previous].Next
 		idx := 0
 		for i := 0; i < len(nexts); i++ {
@@ -356,10 +356,10 @@ func (db *DbTest) Goto(rcpt Receipt) bool {
 		}
 		st.Push(idx)
 		there = *db.Receipts[there.Hashed.Previous]
-		db.PopTransaction()
+		db.PopReceipt()
 	}
 	for st.CanPop() {
-		db.RePush(st.Pop())
+		db.PushReceipt(st.Pop())
 	}
 
 	if db.This().This == there.This {

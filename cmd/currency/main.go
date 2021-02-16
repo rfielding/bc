@@ -100,14 +100,14 @@ func main() {
 	}
 	log.Printf("%s", currency.AsJson(db.This()))
 
-	db.PopTransaction()
-	db.RePush(0)
+	db.PopReceipt()
+	db.PushReceipt(0)
 	log.Printf("dbt: %s", currency.AsJson(dbt.Accounts))
 
-	for db.PopTransaction() {
+	for db.PopReceipt() {
 	}
 	for len(db.PeekNext()) > 0 {
-		db.RePush(0)
+		db.PushReceipt(0)
 	}
 	log.Printf("dbt: %s", currency.AsJson(dbt))
 
