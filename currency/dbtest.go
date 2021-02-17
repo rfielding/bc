@@ -13,6 +13,14 @@ type Stored struct {
 	HighestReceiptHashPointers []HashPointer
 }
 
+func NewStored() *Stored {
+	return &Stored{
+		Accounts:     make(map[PublicKeyString]Account),
+		Receipts:     make(map[HashPointer]Receipt),
+		NextReceipts: make(map[HashPointer][]HashPointer),
+	}
+}
+
 func (s *Stored) InsertReceipt(rcpt Receipt) {
 	// ensure that every receipt indexes next
 	p := rcpt.Hashed.Previous
