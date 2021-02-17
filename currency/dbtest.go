@@ -7,10 +7,10 @@ import (
 )
 
 type Stored struct {
-	Accounts        map[PublicKeyString]Account
-	Receipts        map[HashPointer]Receipt
-	NextReceipts    map[HashPointer][]HashPointer
-	HighestReceipts []HashPointer
+	Accounts                   map[PublicKeyString]Account
+	Receipts                   map[HashPointer]Receipt
+	NextReceipts               map[HashPointer][]HashPointer
+	HighestReceiptHashPointers []HashPointer
 }
 
 func (s *Stored) InsertReceipt(rcpt Receipt) {
@@ -30,18 +30,18 @@ func (s *Stored) InsertReceipt(rcpt Receipt) {
 
 	// Remember the highest ChainLength
 	hi := ChainLength(0)
-	for i := 0; i < len(s.HighestReceipts); i++ {
-		h := s.HighestReceipts[i]
+	for i := 0; i < len(s.HighestReceiptHashPointers); i++ {
+		h := s.HighestReceiptHashPointers[i]
 		r := s.Receipts[h]
 		if hi < r.Hashed.ChainLength {
 			hi = r.Hashed.ChainLength
 		}
 	}
 	if hi == rcpt.Hashed.ChainLength {
-		s.HighestReceipts = append(s.HighestReceipts, rcpt.This)
+		s.HighestReceiptHashPointers = append(s.HighestReceiptHashPointers, rcpt.This)
 	}
 	if hi < rcpt.Hashed.ChainLength {
-		s.HighestReceipts = []HashPointer{rcpt.This}
+		s.HighestReceiptHashPointers = []HashPointer{rcpt.This}
 	}
 }
 
@@ -59,6 +59,10 @@ func (s *Stored) InsertAccount(acct Account) {
 
 func (s *Stored) FindAccountByPublicKeyString(k PublicKeyString) Account {
 	return s.Accounts[k]
+}
+
+func (s *Stored) HighestReceipts() []HashPointer {
+	return s.HighestReceiptHashPointers
 }
 
 var _ Storage = &Stored{}
