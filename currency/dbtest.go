@@ -3,6 +3,7 @@ package currency
 import (
 	"crypto/ecdsa"
 	"fmt"
+	"log"
 	"sync"
 )
 
@@ -37,7 +38,7 @@ func (s *Stored) InsertReceipt(rcpt Receipt) {
 	s.Receipts[rcpt.This] = rcpt
 
 	// Remember the highest ChainLength
-	hi := ChainLength(0)
+	hi := ChainLength(-1)
 	for i := 0; i < len(s.HighestReceiptHashPointers); i++ {
 		h := s.HighestReceiptHashPointers[i]
 		r := s.Receipts[h]
@@ -76,34 +77,31 @@ func (s *Stored) HighestReceipts() []HashPointer {
 var _ Storage = &Stored{}
 
 type DbTest struct {
-	Mutex              sync.Mutex
-	IsBank             map[PublicKeyString]bool
-	Accounts           map[PublicKeyString]*Account
-	Receipts           map[HashPointer]*Receipt
-	GenesisReceipt     *Receipt
-	Current            *Receipt
-	HighestChainLength ChainLength
-	HighestReceipts    []Receipt
+	Storage        Storage
+	Mutex          sync.Mutex
+	IsBank         map[PublicKeyString]bool
+	GenesisReceipt Receipt
+	Current        Receipt
 }
 
 func NewDBTest() *DbTest {
-	g := &Receipt{}
+	g := Receipt{}
+	g.This = g.HashPointer()
 	db := &DbTest{
+		Storage: NewStored(),
 		// hack to deal with banks that have negative balances
-		IsBank:   make(map[PublicKeyString]bool),
-		Receipts: make(map[HashPointer]*Receipt),
-		// state at current location in the tree, required for validation!
-		Accounts: make(map[PublicKeyString]*Account),
+		IsBank: make(map[PublicKeyString]bool),
 		// the beginning block that everything must reach
 		GenesisReceipt: g,
 		Current:        g,
 	}
-	db.Receipts[g.This] = g
+	db.Storage.InsertReceipt(g)
+	db.verifyTransaction(g.Hashed.Transaction, false)
 	return db
 }
 
 func (db *DbTest) Genesis() Receipt {
-	return *db.GenesisReceipt
+	return db.GenesisReceipt
 }
 
 func (db *DbTest) AsBank(k PublicKey) {
@@ -157,10 +155,9 @@ func (db *DbTest) verifyTransaction(txn Transaction, isBeforeApply bool) ErrTran
 
 		// look up the account
 		pks := NewPublicKeyString(txn.Flows[i].PublicKey)
-		a := db.Accounts[pks]
+		a := db.Storage.FindAccountByPublicKeyString(pks)
 		// if account not found, then add it as empty
-		if a == nil {
-			a = &Account{}
+		if a.IsEmpty() {
 			a.PublicKey = txn.Flows[i].PublicKey
 			a.Nonce = 0
 		}
@@ -178,14 +175,6 @@ func (db *DbTest) verifyTransaction(txn Transaction, isBeforeApply bool) ErrTran
 		}
 	}
 
-	total = int64(0)
-	for _, av := range db.Accounts {
-		total += av.Amount
-	}
-	if total != 0 {
-		return ErrTotalNonZeroSum
-	}
-
 	return nil
 }
 
@@ -195,27 +184,28 @@ func (db *DbTest) PopReceipt() bool {
 		return false
 	}
 
-	undo := db.Current
-	txn := undo.Hashed.Transaction
+	txn := db.Current.Hashed.Transaction
 
 	// we need to unapply the transaction in order to go back
-	r, ok := db.Receipts[db.Current.Hashed.Previous]
-	if !ok {
-		return false
+	r := db.Storage.FindReceiptByHashPointer(db.Current.Hashed.Previous)
+	if r.IsEmpty() {
+		panic(fmt.Sprintf("we were unable to find a receipt that should exist! at %s", db.Current.Hashed.Previous))
 	}
 
 	// the receipt is found.  now, undo it.
 	for i := 0; i < len(txn.Flows); i++ {
 		pks := NewPublicKeyString(txn.Flows[i].PublicKey)
-		db.Accounts[pks].Amount -= txn.Flows[i].Amount
+		a := db.Storage.FindAccountByPublicKeyString(pks)
+		a.Amount -= txn.Flows[i].Amount
 		if txn.Flows[i].Amount < 0 {
-			db.Accounts[pks].Nonce--
+			a.Nonce--
 		}
+		db.Storage.InsertAccount(a)
 	}
 
 	db.Current = r
 
-	err := db.verifyTransaction(r.Hashed.Transaction, false)
+	err := db.verifyTransaction(db.Current.Hashed.Transaction, false)
 	if err != nil {
 		panic(err)
 	}
@@ -227,18 +217,22 @@ func (db *DbTest) PeekNextReceipts() []Receipt {
 	return db.peekNext()
 }
 
-func (db *DbTest) peekNext() []Receipt {
-	peeks := make([]Receipt, 0)
-	for i := 0; i < len(db.Current.Next); i++ {
-		k := db.Current.Next[i]
-		peeks = append(peeks, *db.Receipts[k])
+func (db *DbTest) nexts(p HashPointer) []Receipt {
+	h := db.Storage.FindNextReceipts(p)
+	r := make([]Receipt, 0)
+	for i := range h {
+		r = append(r, db.Storage.FindReceiptByHashPointer(h[i]))
 	}
-	return peeks
+	return r
+}
+
+func (db *DbTest) peekNext() []Receipt {
+	return db.nexts(db.Current.This)
 }
 
 // receipt, pleaseWait, error
 func (db *DbTest) PushTransaction(txn Transaction) ErrTransaction {
-	prevr := *db.Current
+	prevr := db.Current
 	// if no error, then this is meaningful
 	r := Receipt{}
 
@@ -259,29 +253,27 @@ func (db *DbTest) PushTransaction(txn Transaction) ErrTransaction {
 		}
 		// look up the account
 		pks := NewPublicKeyString(txn.Flows[i].PublicKey)
-		a := db.Accounts[pks]
+		a := db.Storage.FindAccountByPublicKeyString(pks)
 		// if account not found, then add it as empty
-		if a == nil {
-			a = &Account{}
+		if a.IsEmpty() {
 			a.PublicKey = txn.Flows[i].PublicKey
 			a.Nonce = 0
 		}
-		db.Accounts[pks] = a
+		db.Storage.InsertAccount(a)
 	}
 
 	for i := 0; i < len(txn.Flows); i++ {
 		pks := NewPublicKeyString(txn.Flows[i].PublicKey)
-		a := db.Accounts[pks]
-		if a == nil {
-			db.Accounts[pks] = &Account{
-				PublicKey: txn.Flows[i].PublicKey,
-			}
+		a := db.Storage.FindAccountByPublicKeyString(pks)
+		if a.IsEmpty() {
+			a.PublicKey = txn.Flows[i].PublicKey
 		}
 		// Outflows decrement the nonce
 		if txn.Flows[i].Amount < 0 {
-			db.Accounts[pks].Nonce++
+			a.Nonce++
 		}
-		db.Accounts[pks].Amount += txn.Flows[i].Amount
+		a.Amount += txn.Flows[i].Amount
+		db.Storage.InsertAccount(a)
 	}
 
 	// write out the receipt data
@@ -291,21 +283,8 @@ func (db *DbTest) PushTransaction(txn Transaction) ErrTransaction {
 	r.This = r.HashPointer()
 
 	// store it
-	db.Receipts[r.This] = &r
-
-	// modify our previous to point to us
-	if db.Receipts[prevr.This] != nil {
-		db.Receipts[prevr.This].Next = append(db.Receipts[prevr.This].Next, r.This)
-	}
-	db.Current = &r
-
-	// Keep track of highest chain length in use
-	if r.Hashed.ChainLength == db.HighestChainLength {
-		db.HighestReceipts = append(db.HighestReceipts, r)
-	} else if r.Hashed.ChainLength > db.HighestChainLength {
-		db.HighestChainLength = r.Hashed.ChainLength
-		db.HighestReceipts = []Receipt{r}
-	}
+	db.Storage.InsertReceipt(r)
+	db.Current = r
 
 	err = db.verifyTransaction(txn, false)
 	if err != nil {
@@ -326,13 +305,15 @@ func (db *DbTest) PushReceipt(i int) ErrTransaction {
 	// the receipt is found.  now, undo it.
 	for i := 0; i < len(txn.Flows); i++ {
 		pks := NewPublicKeyString(txn.Flows[i].PublicKey)
-		db.Accounts[pks].Amount += txn.Flows[i].Amount
+		a := db.Storage.FindAccountByPublicKeyString(pks)
+		a.Amount += txn.Flows[i].Amount
 		if txn.Flows[i].Amount < 0 {
-			db.Accounts[pks].Nonce++
+			a.Nonce++
 		}
+		db.Storage.InsertAccount(a)
 	}
 
-	db.Current = db.Receipts[redos[i].HashPointer()]
+	db.Current = db.Storage.FindReceiptByHashPointer(redos[i].HashPointer())
 
 	err := db.verifyTransaction(txn, false)
 	if err != nil {
@@ -343,7 +324,7 @@ func (db *DbTest) PushReceipt(i int) ErrTransaction {
 }
 
 func (db *DbTest) This() Receipt {
-	return *db.Current
+	return db.Current
 }
 
 func (db *DbTest) CanPopReceipt() bool {
@@ -351,7 +332,13 @@ func (db *DbTest) CanPopReceipt() bool {
 }
 
 func (db *DbTest) Highest() []Receipt {
-	return db.HighestReceipts
+	h := db.Storage.HighestReceipts()
+	r := make([]Receipt, 0)
+	for i := range h {
+		v := db.Storage.FindReceiptByHashPointer(h[i])
+		r = append(r, v)
+	}
+	return r
 }
 
 type istack []int
@@ -380,6 +367,7 @@ func (db *DbTest) GotoReceipt(rcpt Receipt) bool {
 	// RePush the stack to get to there
 
 	for db.This().Hashed.ChainLength > rcpt.Hashed.ChainLength && db.CanPopReceipt() {
+		log.Printf("%s", db.This().This)
 		db.PopReceipt()
 	}
 	if db.This().This == rcpt.This {
@@ -388,7 +376,7 @@ func (db *DbTest) GotoReceipt(rcpt Receipt) bool {
 	there := rcpt
 	st := istack{}
 	for db.This().Hashed.ChainLength < there.Hashed.ChainLength {
-		nexts := db.Receipts[there.Hashed.Previous].Next
+		nexts := db.Storage.FindNextReceipts(there.Hashed.Previous)
 		idx := 0
 		for i := 0; i < len(nexts); i++ {
 			if nexts[i] == there.This {
@@ -396,14 +384,14 @@ func (db *DbTest) GotoReceipt(rcpt Receipt) bool {
 				break
 			}
 		}
-		if db.Receipts[there.Hashed.Previous].Next[idx] != there.This {
+		if db.Storage.FindNextReceipts(there.Hashed.Previous)[idx] != there.This {
 			panic(fmt.Sprintf("we are not where we expected: %s vs %s",
-				db.Receipts[there.Hashed.Previous].Next[idx],
+				db.Storage.FindNextReceipts(there.Hashed.Previous)[idx],
 				there.This,
 			))
 		}
 		st.Push(idx)
-		there = *db.Receipts[there.Hashed.Previous]
+		there = db.Storage.FindReceiptByHashPointer(there.Hashed.Previous)
 	}
 	if db.This().This == rcpt.This {
 		return true
@@ -415,7 +403,7 @@ func (db *DbTest) GotoReceipt(rcpt Receipt) bool {
 		))
 	}
 	for db.This().This != there.This && db.CanPopReceipt() {
-		nexts := db.Receipts[there.Hashed.Previous].Next
+		nexts := db.Storage.FindNextReceipts(there.Hashed.Previous)
 		idx := 0
 		for i := 0; i < len(nexts); i++ {
 			if nexts[i] == there.This {
@@ -424,7 +412,7 @@ func (db *DbTest) GotoReceipt(rcpt Receipt) bool {
 			}
 		}
 		st.Push(idx)
-		there = *db.Receipts[there.Hashed.Previous]
+		there = db.Storage.FindReceiptByHashPointer(there.Hashed.Previous)
 		db.PopReceipt()
 	}
 	for st.CanPop() {

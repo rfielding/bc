@@ -102,8 +102,6 @@ func main() {
 
 	db.PopReceipt()
 	db.PushReceipt(0)
-	log.Printf("dbt: %s", currency.AsJson(dbt.Accounts))
-
 	for db.PopReceipt() {
 	}
 	for len(db.PeekNextReceipts()) > 0 {
@@ -119,5 +117,4 @@ func main() {
 	}
 
 	log.Printf("dbt: %s", currency.AsJson(dbt))
-
 }
