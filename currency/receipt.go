@@ -60,6 +60,13 @@ type Account struct {
 	Nonce Nonce `json:"nonce"`
 }
 
+func (a *Account) IsEmpty() bool {
+	if a.PublicKey.X == nil {
+		return true
+	}
+	return false
+}
+
 // Signatures are points
 type Signature Point
 
@@ -144,6 +151,13 @@ type Receipt struct {
 	Hashed Hashed        `json:"hashed"`
 	This   HashPointer   `json:"this"`
 	Next   []HashPointer `json:"-"`
+}
+
+func (r *Receipt) IsEmpty() bool {
+	if len(r.This) == 0 {
+		return true
+	}
+	return false
 }
 
 func (r *Receipt) Serialize() []byte {

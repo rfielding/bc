@@ -6,6 +6,46 @@ import (
 	"sync"
 )
 
+type Stored struct {
+	Accounts     map[PublicKeyString]Account
+	Receipts     map[HashPointer]Receipt
+	NextReceipts map[HashPointer][]HashPointer
+}
+
+func (s *Stored) InsertReceipt(rcpt Receipt) {
+	// ensure that every receipt indexes next
+	p := rcpt.Hashed.Previous
+	rFound := false
+	for _, r := range s.NextReceipts[p] {
+		if r == rcpt.This {
+			rFound = true
+		}
+	}
+	if !rFound {
+		s.NextReceipts[p] = append(s.NextReceipts[p], rcpt.This)
+	}
+	// receipt goes into the database
+	s.Receipts[rcpt.This] = rcpt
+}
+
+func (s *Stored) FindNextReceipts(r HashPointer) []HashPointer {
+	return s.NextReceipts[r]
+}
+
+func (s *Stored) FindReceiptByHashPointer(h HashPointer) Receipt {
+	return s.Receipts[h]
+}
+
+func (s *Stored) InsertAccount(acct Account) {
+	s.Accounts[NewPublicKeyString(acct.PublicKey)] = acct
+}
+
+func (s *Stored) FindAccountByPublicKeyString(k PublicKeyString) Account {
+	return s.Accounts[k]
+}
+
+var _ Storage = &Stored{}
+
 type DbTest struct {
 	Mutex              sync.Mutex
 	IsBank             map[PublicKeyString]bool

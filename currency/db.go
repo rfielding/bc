@@ -51,6 +51,14 @@ var (
 	ErrTotalNonZeroSum = fmt.Errorf("totalnonzerosum")
 )
 
+type Storage interface {
+	InsertReceipt(rcpt Receipt)
+	FindNextReceipts(h HashPointer) []HashPointer
+	FindReceiptByHashPointer(h HashPointer) Receipt
+	InsertAccount(acct Account)
+	FindAccountByPublicKeyString(k PublicKeyString) Account
+}
+
 /*
   ???
 
