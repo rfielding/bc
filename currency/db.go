@@ -57,6 +57,7 @@ type Storage interface {
 	FindReceiptByHashPointer(h HashPointer) Receipt
 	InsertAccount(acct Account)
 	FindAccountByPublicKeyString(k PublicKeyString) Account
+	HighestReceipts() []HashPointer
 }
 
 /*

@@ -7,9 +7,10 @@ import (
 )
 
 type Stored struct {
-	Accounts     map[PublicKeyString]Account
-	Receipts     map[HashPointer]Receipt
-	NextReceipts map[HashPointer][]HashPointer
+	Accounts        map[PublicKeyString]Account
+	Receipts        map[HashPointer]Receipt
+	NextReceipts    map[HashPointer][]HashPointer
+	HighestReceipts []HashPointer
 }
 
 func (s *Stored) InsertReceipt(rcpt Receipt) {
@@ -26,6 +27,22 @@ func (s *Stored) InsertReceipt(rcpt Receipt) {
 	}
 	// receipt goes into the database
 	s.Receipts[rcpt.This] = rcpt
+
+	// Remember the highest ChainLength
+	hi := ChainLength(0)
+	for i := 0; i < len(s.HighestReceipts); i++ {
+		h := s.HighestReceipts[i]
+		r := s.Receipts[h]
+		if hi < r.Hashed.ChainLength {
+			hi = r.Hashed.ChainLength
+		}
+	}
+	if hi == rcpt.Hashed.ChainLength {
+		s.HighestReceipts = append(s.HighestReceipts, rcpt.This)
+	}
+	if hi < rcpt.Hashed.ChainLength {
+		s.HighestReceipts = []HashPointer{rcpt.This}
+	}
 }
 
 func (s *Stored) FindNextReceipts(r HashPointer) []HashPointer {
