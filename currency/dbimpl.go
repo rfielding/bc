@@ -7,16 +7,16 @@ import (
 	"sync"
 )
 
-type DbTest struct {
+type DbImpl struct {
 	Storage Storage
 	Mutex   sync.Mutex
 	IsBank  map[PublicKeyString]bool
 }
 
-func NewDBTest() *DbTest {
+func NewDbImpl() *DbImpl {
 	g := Receipt{}
 	g.This = g.HashPointer()
-	db := &DbTest{
+	db := &DbImpl{
 		Storage: NewStored(),
 		// hack to deal with banks that have negative balances
 		IsBank: make(map[PublicKeyString]bool),
@@ -28,16 +28,16 @@ func NewDBTest() *DbTest {
 	return db
 }
 
-func (db *DbTest) Genesis() Receipt {
+func (db *DbImpl) Genesis() Receipt {
 	return db.Storage.GetGenesis()
 }
 
-func (db *DbTest) AsBank(k PublicKey) {
+func (db *DbImpl) AsBank(k PublicKey) {
 	pks := NewPublicKeyString(k)
 	db.IsBank[pks] = true
 }
 
-func (db *DbTest) Sign(k *ecdsa.PrivateKey, t *Transaction, i int) *Transaction {
+func (db *DbImpl) Sign(k *ecdsa.PrivateKey, t *Transaction, i int) *Transaction {
 	// one signer for now
 	if len(t.Flows) != len(t.Signoffs) {
 		return nil
@@ -46,11 +46,11 @@ func (db *DbTest) Sign(k *ecdsa.PrivateKey, t *Transaction, i int) *Transaction 
 	return t
 }
 
-func (db *DbTest) SignTransaction(t *Transaction, k *ecdsa.PrivateKey, i int) error {
+func (db *DbImpl) SignTransaction(t *Transaction, k *ecdsa.PrivateKey, i int) error {
 	return t.Sign(k, i)
 }
 
-func (db *DbTest) verifyTransaction(txn Transaction, isBeforeApply bool) ErrTransaction {
+func (db *DbImpl) verifyTransaction(txn Transaction, isBeforeApply bool) ErrTransaction {
 	// basic malformedness
 	if len(txn.Flows) != len(txn.Signoffs) {
 		return ErrMalformed
@@ -106,7 +106,7 @@ func (db *DbTest) verifyTransaction(txn Transaction, isBeforeApply bool) ErrTran
 	return nil
 }
 
-func (db *DbTest) PopReceipt() bool {
+func (db *DbImpl) PopReceipt() bool {
 	// If this crashes, then the database is corrupted
 	if db.This().Hashed.ChainLength == 0 {
 		return false
@@ -140,11 +140,11 @@ func (db *DbTest) PopReceipt() bool {
 	return true
 }
 
-func (db *DbTest) PeekNextReceipts() []Receipt {
+func (db *DbImpl) PeekNextReceipts() []Receipt {
 	return db.peekNext()
 }
 
-func (db *DbTest) nexts(p HashPointer) []Receipt {
+func (db *DbImpl) nexts(p HashPointer) []Receipt {
 	h := db.Storage.FindNextReceipts(p)
 	r := make([]Receipt, 0)
 	for i := range h {
@@ -153,12 +153,12 @@ func (db *DbTest) nexts(p HashPointer) []Receipt {
 	return r
 }
 
-func (db *DbTest) peekNext() []Receipt {
+func (db *DbImpl) peekNext() []Receipt {
 	return db.nexts(db.Storage.GetThis().This)
 }
 
 // receipt, pleaseWait, error
-func (db *DbTest) PushTransaction(txn Transaction) ErrTransaction {
+func (db *DbImpl) PushTransaction(txn Transaction) ErrTransaction {
 	prevr := db.Storage.GetThis()
 	// if no error, then this is meaningful
 	r := Receipt{}
@@ -221,7 +221,7 @@ func (db *DbTest) PushTransaction(txn Transaction) ErrTransaction {
 	return nil
 }
 
-func (db *DbTest) PushReceipt(i int) ErrTransaction {
+func (db *DbImpl) PushReceipt(i int) ErrTransaction {
 	// If this crashes, then the database is corrupted
 	redos := db.peekNext()
 	if len(redos) < i {
@@ -250,15 +250,15 @@ func (db *DbTest) PushReceipt(i int) ErrTransaction {
 	return nil
 }
 
-func (db *DbTest) This() Receipt {
+func (db *DbImpl) This() Receipt {
 	return db.Storage.GetThis()
 }
 
-func (db *DbTest) CanPopReceipt() bool {
+func (db *DbImpl) CanPopReceipt() bool {
 	return db.This().Hashed.ChainLength > 0
 }
 
-func (db *DbTest) Highest() []Receipt {
+func (db *DbImpl) Highest() []Receipt {
 	h := db.Storage.HighestReceipts()
 	r := make([]Receipt, 0)
 	for i := range h {
@@ -288,7 +288,7 @@ func (s *istack) CanPop() bool {
 	return len(*s) > 0
 }
 
-func (db *DbTest) GotoReceipt(rcpt Receipt) bool {
+func (db *DbImpl) GotoReceipt(rcpt Receipt) bool {
 	// Walk them back to a receipt that they have in common
 	// and remember the path for there when we do it
 	// RePush the stack to get to there
@@ -352,4 +352,4 @@ func (db *DbTest) GotoReceipt(rcpt Receipt) bool {
 	return false
 }
 
-var _ Db = &DbTest{}
+var _ Db = &DbImpl{}

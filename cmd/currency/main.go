@@ -8,8 +8,8 @@ import (
 
 func main() {
 	var db currency.Db
-	var dbt *currency.DbTest
-	dbt = currency.NewDBTest()
+	var dbt *currency.DbImpl
+	dbt = currency.NewDbImpl()
 	db = dbt
 
 	alicePriv, err := currency.NewKeyPair()
