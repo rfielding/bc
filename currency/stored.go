@@ -7,6 +7,11 @@ type Stored struct {
 	HighestReceiptHashPointers []HashPointer
 	Genesis                    Receipt
 	This                       Receipt
+	Transactions               []Transaction
+}
+
+func (s *Stored) InsertTransaction(txn Transaction) {
+	s.Transactions = append(s.Transactions, txn)
 }
 
 func (s *Stored) SetGenesis(r Receipt) {

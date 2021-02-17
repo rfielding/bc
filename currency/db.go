@@ -51,7 +51,9 @@ var (
 	ErrTotalNonZeroSum = fmt.Errorf("totalnonzerosum")
 )
 
+// Simple indexed object persistence goes here.
 type Storage interface {
+	InsertTransaction(txn Transaction)
 	InsertReceipt(rcpt Receipt)
 	FindNextReceipts(h HashPointer) []HashPointer
 	FindReceiptByHashPointer(h HashPointer) Receipt
