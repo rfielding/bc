@@ -58,6 +58,10 @@ type Storage interface {
 	InsertAccount(acct Account)
 	FindAccountByPublicKeyString(k PublicKeyString) Account
 	HighestReceipts() []HashPointer
+	SetGenesis(r Receipt)
+	GetGenesis() Receipt
+	SetThis(r Receipt)
+	GetThis() Receipt
 }
 
 /*

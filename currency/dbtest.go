@@ -8,11 +8,9 @@ import (
 )
 
 type DbTest struct {
-	Storage        Storage
-	Mutex          sync.Mutex
-	IsBank         map[PublicKeyString]bool
-	GenesisReceipt Receipt
-	Current        Receipt
+	Storage Storage
+	Mutex   sync.Mutex
+	IsBank  map[PublicKeyString]bool
 }
 
 func NewDBTest() *DbTest {
@@ -22,17 +20,16 @@ func NewDBTest() *DbTest {
 		Storage: NewStored(),
 		// hack to deal with banks that have negative balances
 		IsBank: make(map[PublicKeyString]bool),
-		// the beginning block that everything must reach
-		GenesisReceipt: g,
-		Current:        g,
 	}
+	db.Storage.SetGenesis(g)
+	db.Storage.SetThis(g)
 	db.Storage.InsertReceipt(g)
 	db.verifyTransaction(g.Hashed.Transaction, false)
 	return db
 }
 
 func (db *DbTest) Genesis() Receipt {
-	return db.GenesisReceipt
+	return db.Storage.GetGenesis()
 }
 
 func (db *DbTest) AsBank(k PublicKey) {
@@ -115,12 +112,12 @@ func (db *DbTest) PopReceipt() bool {
 		return false
 	}
 
-	txn := db.Current.Hashed.Transaction
+	txn := db.Storage.GetThis().Hashed.Transaction
 
 	// we need to unapply the transaction in order to go back
-	r := db.Storage.FindReceiptByHashPointer(db.Current.Hashed.Previous)
+	r := db.Storage.FindReceiptByHashPointer(db.Storage.GetThis().Hashed.Previous)
 	if r.IsEmpty() {
-		panic(fmt.Sprintf("we were unable to find a receipt that should exist! at %s", db.Current.Hashed.Previous))
+		panic(fmt.Sprintf("we were unable to find a receipt that should exist! at %s", db.Storage.GetThis().Hashed.Previous))
 	}
 
 	// the receipt is found.  now, undo it.
@@ -134,9 +131,8 @@ func (db *DbTest) PopReceipt() bool {
 		db.Storage.InsertAccount(a)
 	}
 
-	db.Current = r
-
-	err := db.verifyTransaction(db.Current.Hashed.Transaction, false)
+	db.Storage.SetThis(r)
+	err := db.verifyTransaction(db.Storage.GetThis().Hashed.Transaction, false)
 	if err != nil {
 		panic(err)
 	}
@@ -158,12 +154,12 @@ func (db *DbTest) nexts(p HashPointer) []Receipt {
 }
 
 func (db *DbTest) peekNext() []Receipt {
-	return db.nexts(db.Current.This)
+	return db.nexts(db.Storage.GetThis().This)
 }
 
 // receipt, pleaseWait, error
 func (db *DbTest) PushTransaction(txn Transaction) ErrTransaction {
-	prevr := db.Current
+	prevr := db.Storage.GetThis()
 	// if no error, then this is meaningful
 	r := Receipt{}
 
@@ -215,7 +211,7 @@ func (db *DbTest) PushTransaction(txn Transaction) ErrTransaction {
 
 	// store it
 	db.Storage.InsertReceipt(r)
-	db.Current = r
+	db.Storage.SetThis(r)
 
 	err = db.verifyTransaction(txn, false)
 	if err != nil {
@@ -244,7 +240,7 @@ func (db *DbTest) PushReceipt(i int) ErrTransaction {
 		db.Storage.InsertAccount(a)
 	}
 
-	db.Current = db.Storage.FindReceiptByHashPointer(redos[i].HashPointer())
+	db.Storage.SetThis(db.Storage.FindReceiptByHashPointer(redos[i].HashPointer()))
 
 	err := db.verifyTransaction(txn, false)
 	if err != nil {
@@ -255,7 +251,7 @@ func (db *DbTest) PushReceipt(i int) ErrTransaction {
 }
 
 func (db *DbTest) This() Receipt {
-	return db.Current
+	return db.Storage.GetThis()
 }
 
 func (db *DbTest) CanPopReceipt() bool {

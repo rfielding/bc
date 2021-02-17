@@ -5,6 +5,24 @@ type Stored struct {
 	Receipts                   map[HashPointer]Receipt
 	NextReceipts               map[HashPointer][]HashPointer
 	HighestReceiptHashPointers []HashPointer
+	Genesis                    Receipt
+	This                       Receipt
+}
+
+func (s *Stored) SetGenesis(r Receipt) {
+	s.Genesis = r
+}
+
+func (s *Stored) GetGenesis() Receipt {
+	return s.Genesis
+}
+
+func (s *Stored) SetThis(r Receipt) {
+	s.This = r
+}
+
+func (s *Stored) GetThis() Receipt {
+	return s.This
 }
 
 func NewStored() *Stored {
