@@ -46,6 +46,14 @@ func (db *DbImpl) Sign(k *ecdsa.PrivateKey, t *Transaction, i int) *Transaction 
 	return t
 }
 
+func (db *DbImpl) InsertTransaction(txn Transaction) {
+	db.Storage.InsertTransaction(txn)
+}
+
+func (db *DbImpl) IterateTransactions() TransactionIterator {
+	return db.Storage.IterateTransactions()
+}
+
 func (db *DbImpl) SignTransaction(t *Transaction, k *ecdsa.PrivateKey, i int) error {
 	return t.Sign(k, i)
 }

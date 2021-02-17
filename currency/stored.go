@@ -10,6 +10,38 @@ type Stored struct {
 	Transactions               []Transaction
 }
 
+type TransactionIteratorImpl struct {
+	Stored *Stored
+	Index  int
+}
+
+func (it *TransactionIteratorImpl) Next() Transaction {
+	v := it.Stored.Transactions[it.Index]
+	if it.HasNext() {
+		it.Index++
+	}
+	return v
+}
+
+func (it *TransactionIteratorImpl) HasNext() bool {
+	if it.Index+1 < len(it.Stored.Transactions) {
+		return true
+	}
+	return false
+}
+
+func (it *TransactionIteratorImpl) Remove() {
+	head := it.Stored.Transactions[0:it.Index]
+	tail := it.Stored.Transactions[:it.Index+1]
+	it.Stored.Transactions = append(head, tail...)
+}
+
+func (s *Stored) IterateTransactions() TransactionIterator {
+	return &TransactionIteratorImpl{
+		Stored: s,
+	}
+}
+
 func (s *Stored) InsertTransaction(txn Transaction) {
 	s.Transactions = append(s.Transactions, txn)
 }

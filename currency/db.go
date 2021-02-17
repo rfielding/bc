@@ -10,6 +10,8 @@ import (
 //  (alice: 5, bob: 6) send: (charles: 10, taxman: 1)
 //
 type Db interface {
+	InsertTransaction(txn Transaction)
+
 	// Try to insert transactions into the chain
 	// Pushing onto This() receipt.
 	// If it fails, then there is no effect.
@@ -27,6 +29,7 @@ type Db interface {
 	Genesis() Receipt
 	This() Receipt
 	Highest() []Receipt
+	IterateTransactions() TransactionIterator
 
 	// Stupid hack to deal with accounts with negative balances, like treasuries
 	// Something like proof-of-work will be needed to remove the Treasury hack
@@ -54,6 +57,7 @@ var (
 // Simple indexed object persistence goes here.
 type Storage interface {
 	InsertTransaction(txn Transaction)
+	IterateTransactions() TransactionIterator
 	InsertReceipt(rcpt Receipt)
 	FindNextReceipts(h HashPointer) []HashPointer
 	FindReceiptByHashPointer(h HashPointer) Receipt
@@ -64,6 +68,12 @@ type Storage interface {
 	GetGenesis() Receipt
 	SetThis(r Receipt)
 	GetThis() Receipt
+}
+
+type TransactionIterator interface {
+	Next() Transaction
+	HasNext() bool
+	Remove()
 }
 
 /*
